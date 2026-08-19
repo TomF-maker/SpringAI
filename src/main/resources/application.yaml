@@ -9,4 +9,6 @@ spring:
         options:
           temperature: 0.7
           num-predict: 2048  # 最大输出长度
-
+  thymeleaf:
+    cache: false   # 开发时关闭缓存，修改页面后刷新即可生效
+    encoding: UTF-8
