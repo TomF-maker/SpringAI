@@ -1,14 +1,40 @@
 spring:
   application:
-    name: SpringAI
+    name: purchase-assistant
+
+  # ========== Ollama 大模型配置 ==========
   ai:
     ollama:
-      base-url: http://localhost:11434  # Ollama默认服务地址
+      base-url: http://你的服务器ip:11434   # 你的云服务器公网IP + Ollama端口
       chat:
-        model: deepseek-r1:1.5b  # 模型名称，与终端启动的模型一致
         options:
-          temperature: 0.7
-          num-predict: 2048  # 最大输出长度
+          model: deepseek-r1:1.5b              # 与云端下载的模型名称一致
+          temperature: 0.7                     # 控制随机性，0.7 适合对话
+
+    # ========== Qdrant 向量数据库配置 ==========
+    vectorstore:
+      qdrant:
+        host: 你的服务器ip                  # 你的云服务器公网IP
+        port: 6334                             # Qdrant gRPC 端口（注意不是6333）
+        collection-name: purchase_docs         # 集合名称，不存在时会自动创建
+        vector-size: 1536                      # DeepSeek-R1-1.5B 的向量维度
+        initialize-schema: true                # 自动创建集合（如果不存在）
+
+  # ========== 文件上传配置 ==========
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  # ========== Thymeleaf 模板配置 ==========
   thymeleaf:
-    cache: false   # 开发时关闭缓存，修改页面后刷新即可生效
+    cache: false                               # 开发时关闭缓存，方便调试
     encoding: UTF-8
+    mode: HTML
+
+server:
+  port: 8080
+
+logging:
+  level:
+    org.springframework.ai: DEBUG              # 开启 Spring AI 调试日志
