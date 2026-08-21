@@ -5,7 +5,7 @@ spring:
   # ========== Ollama 大模型配置 ==========
   ai:
     ollama:
-      base-url: http://124.221.251.183:11434   # 你的云服务器公网IP + Ollama端口
+      base-url: http://你的服务器ip:11434   # 你的云服务器公网IP + Ollama端口
       chat:
         options:
           model: deepseek-r1:1.5b              # 与云端下载的模型名称一致
@@ -18,7 +18,7 @@ spring:
     # ========== Qdrant 向量数据库配置 ==========
     vectorstore:
       qdrant:
-        host: 124.221.251.183                  # 你的云服务器公网IP
+        host: 你的服务器ip                  # 你的云服务器公网IP
         port: 6334                             # Qdrant gRPC 端口（注意不是6333）
         collection-name: purchase_docs         # 集合名称，不存在时会自动创建
         vector-size: 1536                      # DeepSeek-R1-1.5B 的向量维度
