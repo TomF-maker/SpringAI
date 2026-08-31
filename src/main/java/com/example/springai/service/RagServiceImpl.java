@@ -1,6 +1,5 @@
 package com.example.springai.service;
 
-
 import com.example.springai.tool.ToolExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -25,7 +24,11 @@ public class RagServiceImpl implements RagServiceI {
     private ChatClient.Builder chatClientBuilder;
 
     @Autowired
-    private ToolExecutor toolExecutor;   // 注入工具执行器
+    private ToolExecutor toolExecutor;
+
+    @Autowired
+    private LocalKnowledgeServiceI localKnowledgeService;   // 注入本地知识库
+
     /**
      * 阻塞式 RAG 问答
      */
@@ -33,6 +36,13 @@ public class RagServiceImpl implements RagServiceI {
     public String chatWithDocument(String question) {
         log.info("🔍 收到RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
+
+        // 优先匹配本地知识库
+        String localAnswer = localKnowledgeService.match(question);
+        if (localAnswer != null) {
+            log.info("✅ 本地知识库命中，直接返回");
+            return localAnswer;
+        }
 
         // 1. 检索相关文档片段
         List<Document> relevantDocs = retrieveDocuments(question);
@@ -65,6 +75,13 @@ public class RagServiceImpl implements RagServiceI {
         log.info("🔍 收到流式RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
 
+        // 优先匹配本地知识库
+        String localAnswer = localKnowledgeService.match(question);
+        if (localAnswer != null) {
+            log.info("✅ 本地知识库命中，返回流式");
+            return Flux.just(localAnswer);
+        }
+
         // 1. 检索相关文档片段（阻塞操作，但很快）
         List<Document> relevantDocs = retrieveDocuments(question);
 
@@ -88,53 +105,6 @@ public class RagServiceImpl implements RagServiceI {
     }
 
     /**
-     * 检索相关文档片段（抽取为公共方法）
-     */
-    private List<Document> retrieveDocuments(String question) {
-        log.debug("📚 正在检索相关文档...");
-        // topK = 3，减少上下文长度，提升速度
-        List<Document> relevantDocs = vectorStore.similaritySearch(SearchRequest.builder().query(question).build());
-        log.info("📚 检索到 {} 个相关文档片段", relevantDocs.size());
-
-        if (!relevantDocs.isEmpty()) {
-            for (int i = 0; i < relevantDocs.size(); i++) {
-                Document doc = relevantDocs.get(i);
-                String content = doc.getFormattedContent();
-                String preview = content.length() > 100 ? content.substring(0, 100) + "..." : content;
-                log.info("片段 {}: {}\n相似度: {}", i + 1, preview, doc.getMetadata().get("similarity_score"));
-            }
-        }
-
-        return relevantDocs != null ? relevantDocs : List.of();
-    }
-
-    /**
-     * 构建 Prompt（抽取为公共方法）
-     */
-    private String buildPrompt(List<Document> relevantDocs, String question) {
-        String context = relevantDocs.stream()
-                .map(Document::getFormattedContent)
-                .collect(Collectors.joining("\n\n---\n\n"));
-
-        log.info("📝 构建Prompt，上下文长度: {} 字符", context.length());
-
-        return """
-                请根据以下文档内容回答用户的问题。
-                
-                文档内容：
-                %s
-                
-                用户问题：%s
-                
-                回答要求：
-                1. 只能基于上述文档内容回答
-                2. 如果文档中没有相关信息，请明确说明"文档中未找到相关信息"
-                3. 回答要简洁、准确，并用中文
-                4. 引用文档中的原文时，请用引号标注
-                """.formatted(context, question);
-    }
-
-    /**
      * 支持工具调用的问答（手动解析 JSON）
      *
      * @param userMessage 用户问题
@@ -142,6 +112,13 @@ public class RagServiceImpl implements RagServiceI {
      */
     public String chatWithTool(String userMessage) {
         log.info("🔧 进入工具调用模式，问题: {}", userMessage);
+
+        // 优先匹配本地知识库
+        String localAnswer = localKnowledgeService.match(userMessage);
+        if (localAnswer != null) {
+            log.info("✅ 本地知识库命中，直接返回");
+            return localAnswer;
+        }
 
         // 1. 构造 Prompt，要求模型如果认为需要工具，则以 JSON 格式返回
         String toolPrompt = String.format("""
@@ -191,5 +168,52 @@ public class RagServiceImpl implements RagServiceI {
 
         // 如果不是工具调用，直接返回
         return firstResponse;
+    }
+
+    /**
+     * 检索相关文档片段（抽取为公共方法）
+     */
+    private List<Document> retrieveDocuments(String question) {
+        log.debug("📚 正在检索相关文档...");
+        // topK = 3，减少上下文长度，提升速度
+        List<Document> relevantDocs = vectorStore.similaritySearch(SearchRequest.builder().query(question).build());
+        log.info("📚 检索到 {} 个相关文档片段", relevantDocs.size());
+
+        if (!relevantDocs.isEmpty()) {
+            for (int i = 0; i < relevantDocs.size(); i++) {
+                Document doc = relevantDocs.get(i);
+                String content = doc.getFormattedContent();
+                String preview = content.length() > 100 ? content.substring(0, 100) + "..." : content;
+                log.info("片段 {}: {}\n相似度: {}", i + 1, preview, doc.getMetadata().get("similarity_score"));
+            }
+        }
+
+        return relevantDocs != null ? relevantDocs : List.of();
+    }
+
+    /**
+     * 构建 Prompt（抽取为公共方法）
+     */
+    private String buildPrompt(List<Document> relevantDocs, String question) {
+        String context = relevantDocs.stream()
+                .map(Document::getFormattedContent)
+                .collect(Collectors.joining("\n\n---\n\n"));
+
+        log.info("📝 构建Prompt，上下文长度: {} 字符", context.length());
+
+        return """
+                请根据以下文档内容回答用户的问题。
+                
+                文档内容：
+                %s
+                
+                用户问题：%s
+                
+                回答要求：
+                1. 只能基于上述文档内容回答
+                2. 如果文档中没有相关信息，请明确说明"文档中未找到相关信息"
+                3. 回答要简洁、准确，并用中文
+                4. 引用文档中的原文时，请用引号标注
+                """.formatted(context, question);
     }
 }

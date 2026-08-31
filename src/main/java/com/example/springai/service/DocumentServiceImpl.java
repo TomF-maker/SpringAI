@@ -112,7 +112,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
         // 2. 文本切分
         log.debug("✂️ 正在切分文本...");
-        List<String> chunks = splitIntoChunks(fullText, 500);
+        List<String> chunks = splitIntoChunks(fullText, 800);
         log.info("✂️ 文本切分完成，共 {} 个片段", chunks.size());
 
         // 3. 构建Document对象
