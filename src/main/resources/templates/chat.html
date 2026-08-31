@@ -239,6 +239,16 @@
                 order: 4;
             }
         }
+        /* 工具调用标签 */
+        .tool-tag {
+            display: inline-block;
+            font-size: 11px;
+            background: #e8edf4;
+            padding: 0 8px;
+            border-radius: 10px;
+            color: #1a73e8;
+            margin-right: 6px;
+        }
     </style>
 </head>
 <body>
@@ -246,13 +256,13 @@
 <div class="chat-container">
     <div class="chat-header">
         🛒 采购智能助手
-        <span class="badge">RAG · 流式输出</span>
+        <span class="badge">RAG · 天气 · 新闻</span>
     </div>
 
     <div class="chat-messages" id="chatMessages">
         <div class="message ai">
             <div class="role-tag">🤖 助手</div>
-            <div class="content">您好！我是采购智能助手，支持文档上传和智能问答。您可以直接问我问题，也可以先上传采购文档，我会基于文档内容为您解答。</div>
+            <div class="content">您好！我是采购智能助手，支持文档上传、智能问答，还可以查询天气和AI新闻。试试问我：“深圳天气怎么样？”或“最近AI有什么新闻？”</div>
             <div class="time" id="welcomeTime"></div>
         </div>
         <div class="typing-indicator" id="typingIndicator">
@@ -262,8 +272,8 @@
 
     <!-- 文件上传区域 -->
     <div class="upload-area">
-        <label class="file-label" for="fileInput">📎 选择PDF</label>
-        <input type="file" id="fileInput" accept=".pdf" />
+        <label class="file-label" for="fileInput">📎 选择PDF/Word</label>
+        <input type="file" id="fileInput" accept=".pdf,.doc,.docx" />
         <span class="file-status" id="fileStatus">未选择文件</span>
         <button class="upload-btn" id="uploadBtn">上传</button>
         <div class="upload-progress" id="uploadProgress">
@@ -294,6 +304,7 @@
     const progressFill = document.getElementById('progressFill');
 
     let isProcessing = false;
+    let currentAbortController = null;
 
     // ================================================================
     // 工具函数
@@ -358,11 +369,12 @@
     uploadBtn.addEventListener('click', async function() {
         const file = fileInput.files[0];
         if (!file) {
-            alert('请先选择PDF文件');
+            alert('请先选择PDF或Word文件');
             return;
         }
-        if (!file.name.toLowerCase().endsWith('.pdf')) {
-            alert('仅支持PDF格式文件');
+        const name = file.name.toLowerCase();
+        if (!(name.endsWith('.pdf') || name.endsWith('.doc') || name.endsWith('.docx'))) {
+            alert('仅支持 PDF、DOC、DOCX 格式');
             return;
         }
 
@@ -385,9 +397,7 @@
                 method: 'POST',
                 body: formData
             });
-
             clearInterval(interval);
-
             const result = await response.json();
 
             if (result.success) {
@@ -415,20 +425,37 @@
     });
 
     // ================================================================
-    // 流式发送消息（完整修复版 - 兼容多种 data: 格式）
+    // 判断是否需要使用工具（阻塞式）
     // ================================================================
-    async function sendMessageStream() {
-        const message = messageInput.value.trim();
-        if (!message || isProcessing) return;
+    function shouldUseTool(message) {
+        const keywords = ['天气', '新闻', '热点', '气温', '预报', 'AI', '人工智能'];
+        return keywords.some(k => message.includes(k));
+    }
 
-        isProcessing = true;
-        messageInput.value = '';
-        sendBtn.disabled = true;
-        messageInput.disabled = true;
+    // ================================================================
+    // 阻塞式发送（用于工具调用）
+    // ================================================================
+    async function sendBlocking(message) {
+        const url = `/api/rag/chat?question=${encodeURIComponent(message)}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (data.success) {
+                addMessage('ai', data.answer);
+            } else {
+                addMessage('ai', `❌ 出错了：${data.answer || '未知错误'}`);
+            }
+        } catch (error) {
+            console.error('Blocking error:', error);
+            addMessage('ai', `❌ 请求失败：${error.message}`);
+        }
+    }
 
-        // 显示用户消息
-        addMessage('user', message);
-
+    // ================================================================
+    // 流式发送（用于RAG文档问答）
+    // ================================================================
+    async function sendStreaming(message) {
         // 创建 AI 消息容器
         const aiMessageDiv = document.createElement('div');
         aiMessageDiv.className = 'message ai';
@@ -446,18 +473,13 @@
         aiMessageDiv.appendChild(timeDiv);
         messagesContainer.insertBefore(aiMessageDiv, typingIndicator);
 
-        // 显示打字指示器
         setTyping(true);
 
         try {
             const url = `/api/rag/chat/stream?question=${encodeURIComponent(message)}`;
             const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            // 收到响应后，隐藏打字指示器
             setTyping(false);
 
             const reader = response.body.getReader();
@@ -472,19 +494,13 @@
                 if (done) break;
 
                 buffer += decoder.decode(value, { stream: true });
-
-                // 按换行符分割
                 const lines = buffer.split(/\r?\n/);
                 buffer = lines.pop() || '';
 
                 for (const line of lines) {
-                    const trimmedLine = line.trim();
-
-                    // 兼容多种格式：data:xxx、data: xxx、data:data:xxx
-                    if (trimmedLine.startsWith('data:')) {
-                        // 去掉 data: 前缀
-                        let data = trimmedLine.substring(5).trim();
-                        // 如果还有 data: 前缀（处理 data:data:xxx 的情况）
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith('data:')) {
+                        let data = trimmed.substring(5).trim();
                         while (data.startsWith('data:')) {
                             data = data.substring(5).trim();
                         }
@@ -499,17 +515,15 @@
                             scrollToBottom();
                         }
                     }
-                    // 忽略空行或其他非 data 行
                 }
             }
 
-            // 处理最后剩余的 buffer
             if (buffer.trim()) {
-                const lines = buffer.split(/\r?\n/);
+                const lines = buffer.trim().split(/\r?\n/);
                 for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (trimmedLine.startsWith('data:')) {
-                        let data = trimmedLine.substring(5).trim();
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith('data:')) {
+                        let data = trimmed.substring(5).trim();
                         while (data.startsWith('data:')) {
                             data = data.substring(5).trim();
                         }
@@ -527,7 +541,6 @@
                 }
             }
 
-            // 如果从未收到有效数据
             if (!hasReceivedData) {
                 contentDiv.textContent = '⚠️ 未收到有效回复，请重试。';
                 timeDiv.textContent = getCurrentTime();
@@ -541,6 +554,33 @@
             contentDiv.textContent = '❌ 抱歉，发生了错误：' + error.message;
             timeDiv.textContent = getCurrentTime();
             scrollToBottom();
+        }
+    }
+
+    // ================================================================
+    // 发送消息入口
+    // ================================================================
+    async function sendMessage() {
+        const message = messageInput.value.trim();
+        if (!message || isProcessing) return;
+
+        isProcessing = true;
+        messageInput.value = '';
+        sendBtn.disabled = true;
+        messageInput.disabled = true;
+
+        // 显示用户消息
+        addMessage('user', message);
+
+        try {
+            if (shouldUseTool(message)) {
+                await sendBlocking(message);
+            } else {
+                await sendStreaming(message);
+            }
+        } catch (error) {
+            console.error('Send error:', error);
+            addMessage('ai', `❌ 发送失败：${error.message}`);
         } finally {
             isProcessing = false;
             sendBtn.disabled = false;
@@ -552,12 +592,12 @@
     // ================================================================
     // 事件绑定
     // ================================================================
-    sendBtn.addEventListener('click', sendMessageStream);
+    sendBtn.addEventListener('click', sendMessage);
 
     messageInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            sendMessageStream();
+            sendMessage();
         }
     });
 

@@ -1,9 +1,7 @@
 package com.example.springai.service;
 
 
-import com.example.springai.tool.NewsTool;
 import com.example.springai.tool.ToolExecutor;
-import com.example.springai.tool.WeatherTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
@@ -25,11 +23,7 @@ public class RagServiceImpl implements RagServiceI {
 
     @Autowired
     private ChatClient.Builder chatClientBuilder;
-    @Autowired
-    private WeatherTool weatherTool;
 
-    @Autowired
-    private NewsTool newsTool;
     @Autowired
     private ToolExecutor toolExecutor;   // 注入工具执行器
     /**
@@ -54,7 +48,6 @@ public class RagServiceImpl implements RagServiceI {
         String answer = chatClientBuilder.build()
                 .prompt()
                 .user(prompt)
-                .tools(weatherTool, newsTool)
                 .call()
                 .content();
 
@@ -86,7 +79,6 @@ public class RagServiceImpl implements RagServiceI {
         return chatClientBuilder.build()
                 .prompt()
                 .user(prompt)
-                .tools(weatherTool, newsTool)
                 .stream()
                 .content()
                 .doOnComplete(() -> {
