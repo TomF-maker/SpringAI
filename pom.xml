@@ -92,6 +92,19 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Tess4J，Tesseract OCR 的 Java 封装 -->
+        <dependency>
+            <groupId>net.sourceforge.tess4j</groupId>
+            <artifactId>tess4j</artifactId>
+            <version>5.3.0</version> <!-- 推荐使用较新版本，支持 LSTM 神经网络模型 -->
+        </dependency>
+
+        <!-- Jakarta Annotation API（提供 @PostConstruct、@PreDestroy 等） -->
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+            <version>3.0.0</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

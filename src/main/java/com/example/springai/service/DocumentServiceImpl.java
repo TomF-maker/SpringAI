@@ -3,16 +3,22 @@ package com.example.springai.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -51,6 +57,13 @@ public class DocumentServiceImpl implements DocumentServiceI {
      */
     @Autowired
     private EmbeddingModel embeddingModel;
+
+    @Autowired
+    private OcrServiceI ocrServiceI;
+    @Value("${app.debug.text-output:false}")
+    private boolean debugTextOutput;
+    // 在 processDocument 方法中，将 documents 分批写入
+    private static final int BATCH_SIZE = 100; // 每批100个
 
     /**
      * 处理上传的PDF文档
@@ -92,13 +105,28 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
         // 4. 存入向量库
         log.info("💾 正在存入向量库，共 {} 个文档...", documents.size());
-        vectorStore.add(documents);
+        // 分批存入向量库
+        int total = documents.size();
+        int successCount = 0;
+        for (int i = 0; i < total; i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, total);
+            List<Document> batch = documents.subList(i, end);
+            try {
+                vectorStore.add(batch);
+                successCount += batch.size();
+                log.info("✅ 批次 {}/{} 存入成功 ({} 个)", i / BATCH_SIZE + 1, (total + BATCH_SIZE - 1) / BATCH_SIZE, batch.size());
+            } catch (Exception e) {
+                log.error("❌ 批次 {}/{} 存入失败: {}", i / BATCH_SIZE + 1, (total + BATCH_SIZE - 1) / BATCH_SIZE, e.getMessage());
+                // 可选择重试或抛出异常
+                throw new IOException("向量存入失败: " + e.getMessage(), e);
+            }
+        }
 
         long endTime = System.currentTimeMillis();
         log.info("✅ 文档处理完成: {}，共 {} 个片段，耗时 {}ms",
                 fileName, documents.size(), (endTime - startTime));
 
-        return documents.size();
+        return successCount;
     }
 
     /**
@@ -116,22 +144,52 @@ public class DocumentServiceImpl implements DocumentServiceI {
      * @return 提取的纯文本内容
      * @throws IOException 文件读取异常
      */
+    /**
+     * 提取 PDF 文本：优先提取文本层，若某页无文本则使用 OCR
+     */
     private String extractTextFromPDF(MultipartFile file) throws IOException {
+        StringBuilder fullText = new StringBuilder();
+
         try (InputStream inputStream = file.getInputStream();
              PDDocument document = PDDocument.load(inputStream)) {
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setStartPage(1);
-            stripper.setEndPage(document.getNumberOfPages());
-            String text = stripper.getText(document);
-            log.debug("📄 PDF页数: {}, 提取字符数: {}",
-                    document.getNumberOfPages(), text != null ? text.length() : 0);
-            return text;
-        } catch (IOException e) {
-            log.error("❌ PDF解析失败: {}", e.getMessage(), e);
-            throw e;
-        }
-    }
 
+            PDFTextStripper stripper = new PDFTextStripper();
+            PDFRenderer renderer = new PDFRenderer(document);
+
+            int totalPages = document.getNumberOfPages();
+            log.info("📄 PDF 共 {} 页", totalPages);
+
+            for (int i = 0; i < totalPages; i++) {
+                // 1. 先尝试提取该页的文本层
+                stripper.setStartPage(i + 1);
+                stripper.setEndPage(i + 1);
+                String pageText = stripper.getText(document).trim();
+
+                if (!pageText.isEmpty()) {
+                    // 有文本层，直接使用
+                    fullText.append(pageText).append("\n\n");
+                    log.debug("📄 第 {} 页：文本层提取成功，共 {} 字符", i + 1, pageText.length());
+                } else {
+                    // 2. 无文本层，使用 OCR 识别整页图片
+                    log.info("🔍 第 {} 页：无文本层，使用 OCR 识别...", i + 1);
+                    try {
+                        BufferedImage image = renderer.renderImageWithDPI(i, 300);
+                        String ocrText = ocrServiceI.recognizeText(image);
+                        if (!ocrText.isEmpty()) {
+                            fullText.append(ocrText).append("\n\n");
+                            log.info("✅ 第 {} 页：OCR 识别成功，共 {} 字符", i + 1, ocrText.length());
+                        } else {
+                            log.warn("⚠️ 第 {} 页：OCR 识别结果为空", i + 1);
+                        }
+                    } catch (Exception e) {
+                        log.error("❌ 第 {} 页：OCR 识别失败: {}", i + 1, e.getMessage());
+                    }
+                }
+            }
+        }
+
+        return fullText.toString();
+    }
     /**
      * 将长文本按段落和字符数切分成小块
      * <p>
