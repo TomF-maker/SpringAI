@@ -27,4 +27,12 @@ public interface RagServiceI {
      * @return 流式返回的回答片段
      */
     Flux<String> chatWithDocumentStream(String question);
+
+    /**
+     * 支持工具调用的问答（手动解析 JSON）
+     *
+     * @param userMessage 用户问题
+     * @return 最终回答
+     */
+    String chatWithTool(String userMessage);
 }

@@ -40,12 +40,14 @@ public class DocumentController {
 
             // 检查文件类型
             String fileName = file.getOriginalFilename();
-            if (fileName == null || !fileName.toLowerCase().endsWith(".pdf")) {
+            if (fileName == null ||
+                    !(fileName.toLowerCase().endsWith(".pdf") ||
+                            fileName.toLowerCase().endsWith(".doc") ||
+                            fileName.toLowerCase().endsWith(".docx"))) {
                 response.put("success", false);
-                response.put("message", "仅支持PDF格式文件");
+                response.put("message", "仅支持 PDF、DOC、DOCX 格式文件");
                 return response;
             }
-
             // 处理文档
             int chunkCount = documentService.processDocument(file);
 

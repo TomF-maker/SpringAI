@@ -1,6 +1,9 @@
 package com.example.springai.service;
 
 
+import com.example.springai.tool.NewsTool;
+import com.example.springai.tool.ToolExecutor;
+import com.example.springai.tool.WeatherTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
@@ -22,7 +25,13 @@ public class RagServiceImpl implements RagServiceI {
 
     @Autowired
     private ChatClient.Builder chatClientBuilder;
+    @Autowired
+    private WeatherTool weatherTool;
 
+    @Autowired
+    private NewsTool newsTool;
+    @Autowired
+    private ToolExecutor toolExecutor;   // 注入工具执行器
     /**
      * 阻塞式 RAG 问答
      */
@@ -45,6 +54,7 @@ public class RagServiceImpl implements RagServiceI {
         String answer = chatClientBuilder.build()
                 .prompt()
                 .user(prompt)
+                .tools(weatherTool, newsTool)
                 .call()
                 .content();
 
@@ -76,6 +86,7 @@ public class RagServiceImpl implements RagServiceI {
         return chatClientBuilder.build()
                 .prompt()
                 .user(prompt)
+                .tools(weatherTool, newsTool)
                 .stream()
                 .content()
                 .doOnComplete(() -> {
@@ -129,5 +140,64 @@ public class RagServiceImpl implements RagServiceI {
                 3. 回答要简洁、准确，并用中文
                 4. 引用文档中的原文时，请用引号标注
                 """.formatted(context, question);
+    }
+
+    /**
+     * 支持工具调用的问答（手动解析 JSON）
+     *
+     * @param userMessage 用户问题
+     * @return 最终回答
+     */
+    public String chatWithTool(String userMessage) {
+        log.info("🔧 进入工具调用模式，问题: {}", userMessage);
+
+        // 1. 构造 Prompt，要求模型如果认为需要工具，则以 JSON 格式返回
+        String toolPrompt = String.format("""
+                你是一个智能助手，可以调用工具获取信息。
+                如果用户的问题需要查询实时天气或新闻，请返回一个 JSON 对象，格式为：
+                {"name": "工具名称", "arguments": {"参数名": "参数值"}}
+                可用的工具：
+                - getWeather: 查询天气，参数 city（城市名）
+                - getAINews: 获取AI新闻，参数 limit（数量）和 window（时间窗口，如24h、7d）
+                如果不需要工具，请直接回答用户的问题。
+                
+                用户问题：%s
+                """, userMessage);
+
+        ChatClient chatClient = chatClientBuilder.build();
+
+        // 2. 第一次调用，获取模型响应
+        String firstResponse = chatClient.prompt()
+                .user(toolPrompt)
+                .call()
+                .content();
+
+        log.debug("第一次响应: {}", firstResponse);
+
+        // 3. 检查是否为工具调用 JSON
+        if (toolExecutor.isToolCall(firstResponse)) {
+            log.info("🔧 检测到工具调用: {}", firstResponse);
+            // 执行工具
+            String toolResult = toolExecutor.execute(firstResponse);
+            log.info("🔧 工具执行结果: {}", toolResult);
+
+            // 4. 第二次调用，将工具结果融入回答
+            String finalPrompt = String.format("""
+                    用户问题：%s
+                    
+                    工具返回的结果：%s
+                    
+                    请根据工具返回的结果，用自然流畅的中文回答用户的问题。
+                    如果工具结果无法回答，请友好地说明。
+                    """, userMessage, toolResult);
+
+            return chatClient.prompt()
+                    .user(finalPrompt)
+                    .call()
+                    .content();
+        }
+
+        // 如果不是工具调用，直接返回
+        return firstResponse;
     }
 }

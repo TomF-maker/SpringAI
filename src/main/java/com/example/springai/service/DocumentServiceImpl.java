@@ -60,6 +60,8 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
     @Autowired
     private OcrServiceI ocrServiceI;
+    @Autowired
+    private WordDocumentServiceI wordDocumentServiceI;
     @Value("${app.debug.text-output:false}")
     private boolean debugTextOutput;
     // 在 processDocument 方法中，将 documents 分批写入
@@ -84,9 +86,23 @@ public class DocumentServiceImpl implements DocumentServiceI {
         log.info("开始处理文档: {}", fileName);
         long startTime = System.currentTimeMillis();
 
+        String fullText;
         // 1. 提取PDF文本
-        log.debug("正在提取PDF文本...");
-        String fullText = extractTextFromPDF(file);
+        if (fileName.toLowerCase().endsWith(".pdf")) {
+            // PDF 使用现有的逐页解析（含 OCR）
+            log.debug("正在提取PDF文本...");
+            fullText = extractTextFromPDF(file);
+        } else if (fileName.toLowerCase().endsWith(".docx") || fileName.toLowerCase().endsWith(".doc")) {
+            // Word 文档使用 POI 解析
+            fullText = wordDocumentServiceI.extractText(file);
+            // 如果 Word 内容为空，可以尝试进一步处理（如提取嵌入图片进行 OCR）
+            if (fullText == null || fullText.trim().isEmpty()) {
+                log.warn("⚠️ Word 文档文本为空，可能包含图片或特殊格式");
+                // 可扩展：使用 POI 提取图片后调用 OCR
+            }
+        } else {
+            throw new IOException("不支持的文件格式: " + fileName);
+        }
 
         if (fullText == null || fullText.trim().isEmpty()) {
             log.warn("⚠️ PDF文件内容为空: {}", fileName);
@@ -190,6 +206,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
         return fullText.toString();
     }
+
     /**
      * 将长文本按段落和字符数切分成小块
      * <p>
