@@ -1,9 +1,15 @@
 package com.example.springai.controller;
 
 import com.example.springai.service.RagServiceI;
+import com.example.springai.utils.JwtUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -20,6 +26,11 @@ public class RagController {
 
     @Autowired
     private RagServiceI ragService;
+    @Autowired
+    private JwtUtils jwtUtils;
+
+    @Autowired
+    private UserDetailsService userDetailsService;
 
     /**
      * 普通 RAG 问答（阻塞式）
@@ -59,8 +70,38 @@ public class RagController {
      * @return Server-Sent Events 流
      */
     @GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> chatStream(@RequestParam String question) {
+    public Flux<String> chatStream(@RequestParam String question,
+                                   HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        try {
+            validateToken(authHeader);
+        } catch (RuntimeException e) {
+            return Flux.just("data: " + e.getMessage() + "\n\n", "data: [DONE]\n\n");
+        }
+        // 校验通过，执行原有逻辑
         log.info("📨 收到流式RAG问答请求: {}", question);
         return ragService.chatWithDocumentStream(question);
+    }
+
+    private UserDetails validateToken(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new RuntimeException("未提供Token");
+        }
+        String jwtToken = authHeader.substring(7);
+        String username;
+        try {
+            username = jwtUtils.getUsernameFromToken(jwtToken);
+        } catch (Exception e) {
+            throw new RuntimeException("Token无效");
+        }
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        if (!jwtUtils.validateToken(jwtToken, userDetails.getUsername())) {
+            throw new RuntimeException("Token已过期或无效");
+        }
+        // 可选：设置认证上下文
+        UsernamePasswordAuthenticationToken authToken =
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+        SecurityContextHolder.getContext().setAuthentication(authToken);
+        return userDetails;
     }
 }

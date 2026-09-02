@@ -4,32 +4,84 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>采购智能助手</title>
+    <!-- Bootstrap 5 + Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #f5f7fa;
-            display: flex;
-            justify-content: center;
-            align-items: center;
             min-height: 100vh;
-            padding: 20px;
         }
+        /* 侧边栏 */
+        .wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 20px 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .sidebar-brand {
+            padding: 0 20px 20px;
+            font-size: 20px;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-brand i { margin-right: 10px; }
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.7);
+            padding: 10px 20px;
+            border-radius: 0;
+            transition: all 0.2s;
+        }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active {
+            color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+        .sidebar .nav-link i { margin-right: 10px; }
+        .main-content {
+            margin-left: 220px;
+            flex: 1;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        /* 顶部栏 */
+        .topbar {
+            background: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .topbar .user-info { font-size: 14px; }
+        .topbar .user-info i { margin-right: 6px; }
+        .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
+        /* 聊天容器（原风格） */
         .chat-container {
             width: 100%;
-            max-width: 800px;
+            max-width: 100%;
             background: white;
             border-radius: 16px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 24px rgba(0,0,0,0.06);
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            height: 600px;
+            height: calc(100vh - 140px);
         }
         .chat-header {
             background: linear-gradient(135deg, #1a73e8, #0d47a1);
             color: white;
-            padding: 20px 24px;
+            padding: 16px 24px;
             font-size: 18px;
             font-weight: 600;
             display: flex;
@@ -82,9 +134,7 @@
         }
         .message.ai .role-tag { color: #1a73e8; }
         .message.user .role-tag { color: rgba(255,255,255,0.8); }
-        .message .content {
-            white-space: pre-wrap;
-        }
+        .message .content { white-space: pre-wrap; }
         .message .time {
             font-size: 11px;
             opacity: 0.6;
@@ -93,7 +143,6 @@
         }
         .message.user .time { color: rgba(255,255,255,0.8); }
         .message.ai .time { color: #94a3b8; }
-
         .chat-input-area {
             padding: 16px 24px;
             border-top: 1px solid #e2e8f0;
@@ -109,11 +158,8 @@
             border-radius: 24px;
             font-size: 14px;
             outline: none;
-            transition: border-color 0.2s;
         }
-        .chat-input-area input:focus {
-            border-color: #1a73e8;
-        }
+        .chat-input-area input:focus { border-color: #1a73e8; }
         .chat-input-area button {
             padding: 12px 28px;
             background: #1a73e8;
@@ -123,15 +169,9 @@
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
         }
-        .chat-input-area button:hover {
-            background: #1557b0;
-        }
-        .chat-input-area button:disabled {
-            background: #94a3b8;
-            cursor: not-allowed;
-        }
+        .chat-input-area button:hover { background: #1557b0; }
+        .chat-input-area button:disabled { background: #94a3b8; cursor: not-allowed; }
         .typing-indicator {
             display: none;
             align-self: flex-start;
@@ -142,13 +182,12 @@
             color: #64748b;
             font-size: 14px;
         }
-        .typing-indicator.active {
-            display: block;
-        }
+        .typing-indicator.active { display: block; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        /* 上传区域 */
         .upload-area {
             padding: 12px 24px;
             border-top: 1px solid #e2e8f0;
@@ -159,9 +198,7 @@
             flex-shrink: 0;
             flex-wrap: wrap;
         }
-        .upload-area input[type="file"] {
-            display: none;
-        }
+        .upload-area input[type="file"] { display: none; }
         .upload-area .file-label {
             padding: 6px 16px;
             background: #e8edf4;
@@ -169,12 +206,8 @@
             font-size: 13px;
             color: #1a73e8;
             cursor: pointer;
-            transition: background 0.2s;
-            white-space: nowrap;
         }
-        .upload-area .file-label:hover {
-            background: #d5dde8;
-        }
+        .upload-area .file-label:hover { background: #d5dde8; }
         .upload-area .file-status {
             font-size: 13px;
             color: #64748b;
@@ -189,16 +222,9 @@
             border-radius: 20px;
             font-size: 13px;
             cursor: pointer;
-            transition: background 0.2s;
-            white-space: nowrap;
         }
-        .upload-area .upload-btn:hover {
-            background: #2d8f47;
-        }
-        .upload-area .upload-btn:disabled {
-            background: #94a3b8;
-            cursor: not-allowed;
-        }
+        .upload-area .upload-btn:hover { background: #2d8f47; }
+        .upload-area .upload-btn:disabled { background: #94a3b8; }
         .upload-progress {
             display: flex;
             align-items: center;
@@ -222,22 +248,15 @@
             width: 0%;
             transition: width 0.3s ease;
         }
-        .upload-progress .progress-text {
-            white-space: nowrap;
-            font-size: 12px;
-        }
-        @media (max-width: 600px) {
-            .upload-area {
-                flex-wrap: wrap;
-            }
-            .upload-area .file-status {
-                flex-basis: 100%;
-                order: 3;
-            }
-            .upload-progress {
-                flex-basis: 100%;
-                order: 4;
-            }
+        .upload-progress .progress-text { white-space: nowrap; font-size: 12px; }
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; }
+            .sidebar-brand span, .sidebar .nav-link span { display: none; }
+            .sidebar .nav-link { text-align: center; padding: 12px 0; }
+            .sidebar .nav-link i { margin-right: 0; font-size: 20px; }
+            .main-content { margin-left: 60px; padding: 12px; }
+            .chat-container { height: calc(100vh - 120px); }
+            .topbar { padding: 8px 16px; }
         }
         /* 工具调用标签 */
         .tool-tag {
@@ -252,45 +271,128 @@
     </style>
 </head>
 <body>
-
-<div class="chat-container">
-    <div class="chat-header">
-        🛒 采购智能助手
-        <span class="badge">RAG · 天气 · 新闻</span>
+<div class="wrapper">
+    <!-- 侧边栏 -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <i class="bi bi-cart3"></i> <span>采购助手</span>
+        </div>
+        <ul class="nav flex-column">
+            <li class="nav-item">
+                <a class="nav-link active" href="/chat"><i class="bi bi-chat-dots"></i> <span>智能问答</span></a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/documents"><i class="bi bi-file-earmark-text"></i> <span>文档管理</span></a>
+            </li>
+            <li class="nav-item" id="userMgmtNav" style="display:none;">
+                <a class="nav-link" href="/users"><i class="bi bi-people"></i> <span>用户管理</span></a>
+            </li>
+            <li class="nav-item" id="deptMgmtNav" style="display:none;">
+                <a class="nav-link" href="/departments"><i class="bi bi-diagram-3"></i> <span>部门管理</span></a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/profile"><i class="bi bi-person"></i> <span>个人中心</span></a>
+            </li>
+        </ul>
     </div>
 
-    <div class="chat-messages" id="chatMessages">
-        <div class="message ai">
-            <div class="role-tag">🤖 助手</div>
-            <div class="content">您好！我是采购智能助手，支持文档上传、智能问答，还可以查询天气和AI新闻。试试问我：“深圳天气怎么样？”或“最近AI有什么新闻？”</div>
-            <div class="time" id="welcomeTime"></div>
+    <!-- 主内容区 -->
+    <div class="main-content">
+        <!-- 顶部栏 -->
+        <div class="topbar">
+            <div>
+                <span id="pageTitle">智能问答</span>
+            </div>
+            <div class="user-info">
+                <i class="bi bi-person-circle"></i>
+                <span id="currentUser">用户</span>
+                <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
+            </div>
         </div>
-        <div class="typing-indicator" id="typingIndicator">
-            <span>🤖 正在思考...</span>
-        </div>
-    </div>
 
-    <!-- 文件上传区域 -->
-    <div class="upload-area">
-        <label class="file-label" for="fileInput">📎 选择PDF/Word</label>
-        <input type="file" id="fileInput" accept=".pdf,.doc,.docx" />
-        <span class="file-status" id="fileStatus">未选择文件</span>
-        <button class="upload-btn" id="uploadBtn">上传</button>
-        <div class="upload-progress" id="uploadProgress">
-            <span class="progress-text" id="progressText"></span>
-            <span class="progress-bar"><span class="fill" id="progressFill"></span></span>
-        </div>
-    </div>
+        <!-- 聊天容器 -->
+        <div class="chat-container">
+            <div class="chat-header">
+                🛒 采购智能助手
+                <span class="badge">RAG · 天气 · 新闻</span>
+            </div>
 
-    <div class="chat-input-area">
-        <input type="text" id="messageInput" placeholder="输入您的问题..." />
-        <button id="sendBtn">发送</button>
+            <div class="chat-messages" id="chatMessages">
+                <div class="message ai">
+                    <div class="role-tag">🤖 助手</div>
+                    <div class="content">您好！我是采购智能助手，支持文档上传、智能问答，还可以查询天气和AI新闻。试试问我：“深圳天气怎么样？”或“最近AI有什么新闻？”</div>
+                    <div class="time" id="welcomeTime"></div>
+                </div>
+                <div class="typing-indicator" id="typingIndicator">
+                    <span>🤖 正在思考...</span>
+                </div>
+            </div>
+
+            <!-- 文件上传区域 -->
+            <div class="upload-area">
+                <label class="file-label" for="fileInput">📎 选择PDF/Word</label>
+                <input type="file" id="fileInput" accept=".pdf,.doc,.docx" />
+                <span class="file-status" id="fileStatus">未选择文件</span>
+                <button class="upload-btn" id="uploadBtn">上传</button>
+                <div class="upload-progress" id="uploadProgress">
+                    <span class="progress-text" id="progressText"></span>
+                    <span class="progress-bar"><span class="fill" id="progressFill"></span></span>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <input type="text" id="messageInput" placeholder="输入您的问题..." />
+                <button id="sendBtn">发送</button>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
     // ================================================================
-    // DOM 引用
+    // 认证拦截
+    // ================================================================
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/login';
+    }
+
+    // 为 fetch 请求自动添加 Authorization 头（排除 auth 相关接口）
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const url = args[0];
+        // 如果是认证相关接口，不添加 Token
+        if (typeof url === 'string' && (url.includes('/api/auth/') || url.includes('/login') || url.includes('/register'))) {
+            return originalFetch.apply(this, args);
+        }
+        const options = args[1] || {};
+        options.headers = options.headers || {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+        args[1] = options;
+        return originalFetch.apply(this, args);
+    };
+
+    // ================================================================
+    // 显示用户信息
+    // ================================================================
+    const username = localStorage.getItem('realName') || localStorage.getItem('username');
+    document.getElementById('currentUser').textContent = username;
+
+    // 根据角色显示管理菜单（简单判断：admin）
+    if (localStorage.getItem('username') === 'admin') {
+        document.getElementById('userMgmtNav').style.display = 'block';
+        document.getElementById('deptMgmtNav').style.display = 'block';
+    }
+
+    // 退出登录
+    document.getElementById('logoutBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        localStorage.clear();
+        window.location.href = '/login';
+    });
+
+    // ================================================================
+    // DOM 引用（聊天功能）
     // ================================================================
     const messagesContainer = document.getElementById('chatMessages');
     const messageInput = document.getElementById('messageInput');
@@ -456,7 +558,6 @@
     // 流式发送（用于RAG文档问答）
     // ================================================================
     async function sendStreaming(message) {
-        // 创建 AI 消息容器
         const aiMessageDiv = document.createElement('div');
         aiMessageDiv.className = 'message ai';
         const roleTag = document.createElement('div');
@@ -569,7 +670,6 @@
         sendBtn.disabled = true;
         messageInput.disabled = true;
 
-        // 显示用户消息
         addMessage('user', message);
 
         try {

@@ -228,7 +228,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
                 // 构建 payload（元数据 + content）
                 Map<String, Object> rawPayload = new HashMap<>(doc.getMetadata());
-                rawPayload.put("content", doc.getFormattedContent());
+                rawPayload.put("text", doc.getFormattedContent());
 
                 // 转换为 JsonWithInt.Value
                 Map<String, JsonWithInt.Value> payload = convertToJsonWithIntValue(rawPayload);

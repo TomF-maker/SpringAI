@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>注册 - 采购智能助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f5f7fa; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .register-card { max-width: 450px; width: 100%; padding: 30px; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        .register-card h3 { text-align: center; margin-bottom: 24px; }
+        .register-card .btn-primary { width: 100%; }
+        .register-card .links { text-align: center; margin-top: 16px; }
+        .code-row { display: flex; gap: 8px; }
+        .code-row input { flex: 1; }
+        .code-row button { flex-shrink: 0; }
+    </style>
+</head>
+<body>
+<div class="register-card">
+    <h3>🛒 注册账号</h3>
+    <form id="registerForm">
+        <div class="mb-3">
+            <label class="form-label">用户名</label>
+            <input type="text" id="username" class="form-control" placeholder="请设置用户名" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">邮箱</label>
+            <input type="email" id="email" class="form-control" placeholder="请输入邮箱" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">密码</label>
+            <input type="password" id="password" class="form-control" placeholder="至少8位" required minlength="8">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">真实姓名（可选）</label>
+            <input type="text" id="realName" class="form-control" placeholder="请输入真实姓名">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">手机号（可选）</label>
+            <input type="text" id="phone" class="form-control" placeholder="请输入手机号">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">验证码</label>
+            <div class="code-row">
+                <input type="text" id="code" class="form-control" placeholder="请输入6位验证码" maxlength="6" required>
+                <button type="button" id="sendCodeBtn" class="btn btn-outline-primary">获取验证码</button>
+            </div>
+        </div>
+        <div id="registerError" class="alert alert-danger d-none"></div>
+        <button type="submit" class="btn btn-primary">注 册</button>
+    </form>
+    <div class="links">
+        <a href="/login">已有账号？立即登录</a>
+    </div>
+</div>
+
+<script>
+    let countdown = 0;
+    const sendBtn = document.getElementById('sendCodeBtn');
+
+    document.getElementById('sendCodeBtn').addEventListener('click', async function() {
+        if (countdown > 0) return;
+        const email = document.getElementById('email').value;
+        if (!email) {
+            alert('请先填写邮箱');
+            return;
+        }
+        try {
+            const response = await fetch('/api/auth/send-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, type: 'register' })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert('验证码已发送到您的邮箱');
+                countdown = 60;
+                sendBtn.disabled = true;
+                const interval = setInterval(() => {
+                    countdown--;
+                    sendBtn.textContent = countdown + 's';
+                    if (countdown <= 0) {
+                        clearInterval(interval);
+                        sendBtn.textContent = '获取验证码';
+                        sendBtn.disabled = false;
+                    }
+                }, 1000);
+            } else {
+                alert(data.message || '发送失败');
+            }
+        } catch (err) {
+            alert('网络错误');
+        }
+    });
+
+    document.getElementById('registerForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const data = {
+            username: document.getElementById('username').value,
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+            realName: document.getElementById('realName').value,
+            phone: document.getElementById('phone').value,
+            code: document.getElementById('code').value
+        };
+        const errorDiv = document.getElementById('registerError');
+        errorDiv.classList.add('d-none');
+
+        try {
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (response.ok) {
+                alert('注册成功！请登录');
+                window.location.href = '/login';
+            } else {
+                errorDiv.textContent = result.message || '注册失败';
+                errorDiv.classList.remove('d-none');
+            }
+        } catch (err) {
+            errorDiv.textContent = '网络错误';
+            errorDiv.classList.remove('d-none');
+        }
+    });
+</script>
+</body>
+</html>

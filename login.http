@@ -1,0 +1,62 @@
+### ============================================
+### 采购智能助手 - API 测试
+### ============================================
+
+### 1. 用户登录（获取 Token）
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+### 2. 测试 RAG 问答（需要 Token）
+### 先把上面返回的 token 复制到下面的 Authorization 中
+GET http://localhost:8080/api/rag/chat?question=你好
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwic3ViIjoiYWRtaW4iLCJpYXQiOjE3ODgyNTQyNjEsImV4cCI6MTc4ODM0MDY2MX0.aeL1xGSSbfrxKlFoNKc0HRV9rC4nMlA9fXLgPPxbif8
+
+### 3. 测试流式 RAG 问答（需要 Token）
+GET http://localhost:8080/api/rag/chat/stream?question=什么是采购管理
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwic3ViIjoiYWRtaW4iLCJpYXQiOjE3ODgyNTQyNjEsImV4cCI6MTc4ODM0MDY2MX0.aeL1xGSSbfrxKlFoNKc0HRV9rC4nMlA9fXLgPPxbif8
+
+### 4. 查询用户列表（测试数据库）
+GET http://localhost:8080/api/test/users
+
+### 5. 查询天气（需要 Token）
+GET http://localhost:8080/api/rag/chat?question=深圳天气如何
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwic3ViIjoiYWRtaW4iLCJpYXQiOjE3ODgyNTQyNjEsImV4cCI6MTc4ODM0MDY2MX0.aeL1xGSSbfrxKlFoNKc0HRV9rC4nMlA9fXLgPPxbif8
+
+### 6. 获取 AI 新闻（需要 Token）
+GET http://localhost:8080/api/rag/chat?question=最近AI有什么新闻
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwic3ViIjoiYWRtaW4iLCJpYXQiOjE3ODgyNTQyNjEsImV4cCI6MTc4ODM0MDY2MX0.aeL1xGSSbfrxKlFoNKc0HRV9rC4nMlA9fXLgPPxbif8
+
+### 7. 验证码发送
+POST http://localhost:8080/api/auth/send-code
+Content-Type: application/json
+
+{
+  "email": "fusiwei@zhulong.com.cn",
+  "type": "register"
+}
+
+### 8.注册
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "password": "12345678",
+  "email": "fusiwei@zhulong.com.cn",
+  "code": "467468",
+  "realName": "测试用户"
+}
+
+### 9.测试登录
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "password": "12345678"
+}
