@@ -81,6 +81,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
         // 初始化 WebClient（用于调用 Ollama API）
         this.webClient = WebClient.create(ollamaBaseUrl);
         log.info("🔧 Ollama WebClient 初始化完成，baseUrl: {}", ollamaBaseUrl);
+        ensureCollectionExists();
     }
 
     /**
@@ -183,73 +184,8 @@ public class DocumentServiceImpl implements DocumentServiceI {
         long batchStart = System.currentTimeMillis();
 
         try {
-            // 1. 提取所有文本
-            List<String> texts = batch.stream()
-                    .map(Document::getFormattedContent)
-                    .collect(Collectors.toList());
-
-            // 2. 批量嵌入（优先使用 Ollama 直接调用，失败则回退到 Spring AI）
-            List<float[]> embeddings;
-            try {
-                embeddings = batchEmbedWithOllama(texts);
-            } catch (Exception e) {
-                log.warn("⚠️ 批量嵌入异常，回退到 Spring AI 逐个嵌入: {}", e.getMessage());
-                embeddings = texts.stream()
-                        .map(embeddingModel::embed)
-                        .collect(Collectors.toList());
-            }
-
-            if (embeddings.size() != texts.size()) {
-                throw new RuntimeException("嵌入向量数量与文本数量不一致");
-            }
-            log.debug("✅ 批量嵌入成功，共 {} 个向量", embeddings.size());
-
-            // 3. 构建 Qdrant Point 列表
-            List<Points.PointStruct> points = new ArrayList<>();
-            for (int i = 0; i < batch.size(); i++) {
-                Document doc = batch.get(i);
-                float[] vectorArray = embeddings.get(i);
-
-                // 转换向量为 List<Float>
-                List<Float> vectorFloats = new ArrayList<>(vectorArray.length);
-                for (float v : vectorArray) {
-                    vectorFloats.add(v);
-                }
-
-                // 构建 Qdrant Vector
-                Points.Vector qdrantVector = Points.Vector.newBuilder()
-                        .addAllData(vectorFloats)
-                        .build();
-
-                // 构建 Vectors（1.19.0 要求用 Vectors 包装）
-                Points.Vectors vectors = Points.Vectors.newBuilder()
-                        .setVector(qdrantVector)
-                        .build();
-
-                // 构建 payload（元数据 + content）
-                Map<String, Object> rawPayload = new HashMap<>(doc.getMetadata());
-                rawPayload.put("text", doc.getFormattedContent());
-
-                // 转换为 JsonWithInt.Value
-                Map<String, JsonWithInt.Value> payload = convertToJsonWithIntValue(rawPayload);
-
-                // PointId
-                Common.PointId pointId = Common.PointId.newBuilder()
-                        .setUuid(UUID.randomUUID().toString())
-                        .build();
-
-                // PointStruct
-                Points.PointStruct point = Points.PointStruct.newBuilder()
-                        .setId(pointId)
-                        .setVectors(vectors)
-                        .putAllPayload(payload)
-                        .build();
-
-                points.add(point);
-            }
-
-            // 4. 批量 Upsert
-            qdrantClient.upsertAsync(collectionName, points).get();
+            // 直接调用 VectorStore.add()，它内部会自动处理嵌入和存储
+            vectorStore.add(batch);
 
             long batchEnd = System.currentTimeMillis();
             log.info("✅ 第 {}/{} 批完成，耗时: {}ms", batchIndex + 1, totalBatches, batchEnd - batchStart);
@@ -259,7 +195,6 @@ public class DocumentServiceImpl implements DocumentServiceI {
             throw new RuntimeException(e);
         }
     }
-
     // ==================== 以下为原有辅助方法，保持不变 ====================
 
     @Override
@@ -404,5 +339,27 @@ public class DocumentServiceImpl implements DocumentServiceI {
             documents.add(new Document(chunks.get(i), metadata));
         }
         return documents;
+    }
+
+    /**
+     * 确保 Qdrant 集合存在，若不存在则自动创建
+     */
+    private void ensureCollectionExists() {
+        try {
+            boolean exists = qdrantClient.collectionExistsAsync(collectionName).get();
+            if (!exists) {
+                log.info("📦 集合 {} 不存在，正在创建...", collectionName);
+                // 创建集合（向量维度需与 embedding 模型匹配，nomic-embed-text 为 768）
+                io.qdrant.client.grpc.Collections.VectorParams vectorParams = io.qdrant.client.grpc.Collections.VectorParams.newBuilder()
+                        .setSize(768)   // 与 application.yml 中 vector-size 一致
+                        .setDistance(io.qdrant.client.grpc.Collections.Distance.Cosine)
+                        .build();
+                qdrantClient.createCollectionAsync(collectionName, vectorParams).get();
+                log.info("✅ 集合 {} 创建成功", collectionName);
+            }
+        } catch (Exception e) {
+            log.error("❌ 检查/创建集合失败: {}", e.getMessage(), e);
+            throw new RuntimeException("Qdrant 集合初始化失败", e);
+        }
     }
 }

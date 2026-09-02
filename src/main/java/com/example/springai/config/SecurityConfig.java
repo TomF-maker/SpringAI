@@ -39,7 +39,7 @@ public class SecurityConfig {
                         // 放行认证和测试 API
                         .requestMatchers("/api/auth/**", "/api/test/**").permitAll()
                         // 放行流接口
-                        .requestMatchers("/api/rag/chat/stream").permitAll()
+                        .requestMatchers("/api/rag/chat/stream","/api/qdrant/clear").permitAll()
                         // 其他所有 API 需要认证
                         .anyRequest().authenticated()
                 )
