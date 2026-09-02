@@ -7,4 +7,6 @@ public interface EmailServiceI {
     boolean verifyCode(String email, String code);
 
     void deleteCode(String email);
+
+    void sendPasswordResetEmail(String toEmail, String username, String newPassword);
 }

@@ -25,4 +25,9 @@ public class PageController {
     public String chat() {
         return "chat";
     }
+
+    @GetMapping("/users")
+    public String users() {
+        return "users";
+    }
 }
