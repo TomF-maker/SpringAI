@@ -193,37 +193,6 @@ public class RagServiceImpl implements RagServiceI {
         return firstResponse;
     }
 
-    /**
-     * 检索相关文档片段（抽取为公共方法）
-     */
-//    private List<Document> retrieveDocuments(String question, Long userId) {
-//        SysUser user = userMapper.selectById(userId);
-//        if (user == null) {
-//            return Collections.emptyList();
-//        }
-//
-//        // 1. 先检索较多文档（例如 topK=10，保证召回率）
-//        List<Document> allDocs = vectorStore.similaritySearch(SearchRequest.builder()
-//                .query(question)
-//                .topK(10)
-//                .build());
-//
-//        if (allDocs.isEmpty()) {
-//            return Collections.emptyList();
-//        }
-//
-//        // 2. 内存过滤：根据用户权限过滤
-//        List<Document> filtered = allDocs.stream()
-//                .filter(doc -> hasPermission(doc, user))
-//                .limit(3)  // 取前3个符合权限的
-//                .collect(Collectors.toList());
-//
-//        log.info("📚 检索到 {} 个相关文档片段（已按权限过滤）", filtered.size());
-//        return filtered;
-//    }
-
-
-
     private List<Document> retrieveDocuments(String question, Long userId) {
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
@@ -302,31 +271,6 @@ public class RagServiceImpl implements RagServiceI {
         }
     }
 
-    // 权限判断方法
-    private boolean hasPermission(Document doc, SysUser user) {
-        // 管理员：查看所有
-        if (user.getIsAdmin() == 1) {
-            return true;
-        }
-
-        // 外部用户：仅公开文档
-        if (user.getUserType() != null && user.getUserType() == 2) {
-            String isPublic = doc.getMetadata().getOrDefault("is_public", "0").toString();
-            return "1".equals(isPublic);
-        }
-
-        // 内部用户：本部门文档 + 公开文档
-        Long departmentId = user.getDepartmentId();
-        if (departmentId != null && departmentId > 0) {
-            String docDept = doc.getMetadata().getOrDefault("department_id", "").toString();
-            String isPublic = doc.getMetadata().getOrDefault("is_public", "0").toString();
-            return docDept.equals(departmentId.toString()) || "1".equals(isPublic);
-        } else {
-            // 用户无部门，仅公开文档
-            String isPublic = doc.getMetadata().getOrDefault("is_public", "0").toString();
-            return "1".equals(isPublic);
-        }
-    }
 
     /**
      * 构建 Prompt（抽取为公共方法）
@@ -371,32 +315,7 @@ public class RagServiceImpl implements RagServiceI {
         return user.getId();
     }
 
-    /**
-     * 根据用户权限构建 Spring AI Filter 表达式
-     * @param user 当前用户
-     * @return 过滤表达式字符串，null 表示无过滤（管理员）
-     */
-    private String buildFilterExpression(SysUser user) {
-        // 管理员：查看所有文档（无过滤）
-        if (user.getIsAdmin() == 1) {
-            return null;
-        }
 
-        // 外部用户：只能查看公开文档
-        if (user.getUserType() != null && user.getUserType() == 2) {
-            return "is_public == '1'";
-        }
-
-        // 内部用户：本部门文档 + 公开文档
-        Long departmentId = user.getDepartmentId();
-        if (departmentId != null && departmentId > 0) {
-            // OR 条件：department_id == 用户部门 OR is_public == 1
-            return "department_id == '" + departmentId.toString() + "' or is_public == '1'";
-        } else {
-            // 用户没有部门，仅公开文档
-            return "is_public == '1'";
-        }
-    }
 
     private Common.Filter buildQdrantFilter(SysUser user) {
         // 管理员：无过滤
