@@ -14,4 +14,5 @@ public class UserListDTO {
     private Integer status;
     private String roleNames;
     private LocalDateTime createdAt;
+    private String phone;
 }

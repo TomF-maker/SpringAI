@@ -296,4 +296,33 @@ public class UserServiceImpl implements UserServiceI {
         }
         return user.getId();
     }
+
+    @Override
+    public Page<UserListDTO> searchEmployees(int page, int size, String keyword) {
+        Page<SysUser> pageParam = new Page<>(page, size);
+        QueryWrapper<SysUser> wrapper = new QueryWrapper<SysUser>()
+                .eq("user_type", 1)  // 仅内部员工
+                .eq("status", 1);    // 仅启用用户
+        if (StringUtils.hasText(keyword)) {
+            wrapper.and(w -> w.like("username", keyword)
+                    .or().like("real_name", keyword)
+                    .or().like("employee_id", keyword)
+                    .or().like("email", keyword));
+        }
+        wrapper.orderByAsc("id");
+        Page<SysUser> userPage = userMapper.selectPage(pageParam, wrapper);
+
+        Page<UserListDTO> dtoPage = new Page<>(userPage.getCurrent(), userPage.getSize(), userPage.getTotal());
+        List<UserListDTO> dtoList = userPage.getRecords().stream().map(user -> {
+            UserListDTO dto = new UserListDTO();
+            dto.setId(user.getId());
+            dto.setUsername(user.getUsername());
+            dto.setEmail(user.getEmail());
+            dto.setRealName(user.getRealName());
+            dto.setPhone(user.getPhone());
+            return dto;
+        }).collect(Collectors.toList());
+        dtoPage.setRecords(dtoList);
+        return dtoPage;
+    }
 }

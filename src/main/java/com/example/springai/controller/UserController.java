@@ -39,7 +39,7 @@ public class UserController {
         return result;
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:\\d+}")
     public Map<String, Object> getUserDetail(@PathVariable Long id) {
         UserDetailDTO detail = userService.getUserDetail(id);
         Map<String, Object> result = new HashMap<>();
@@ -108,6 +108,21 @@ public class UserController {
         Map<String, Object> result = new HashMap<>();
         result.put("success", true);
         result.put("message", "密码修改成功");
+        return result;
+    }
+
+    @GetMapping("/employees")
+    public Map<String, Object> searchEmployees(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String keyword) {
+        Page<UserListDTO> pageResult = userService.searchEmployees(page, size, keyword);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("data", pageResult.getRecords());
+        result.put("total", pageResult.getTotal());
+        result.put("page", pageResult.getCurrent());
+        result.put("size", pageResult.getSize());
         return result;
     }
 }

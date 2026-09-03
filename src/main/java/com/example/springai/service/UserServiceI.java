@@ -21,4 +21,6 @@ public interface UserServiceI {
     void changePassword(Long userId, ChangePasswordRequest request);
 
     SysUser findByUsernameOrEmail(String usernameOrEmail);
+
+    Page<UserListDTO> searchEmployees(int page, int size, String keyword);
 }
