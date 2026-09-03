@@ -40,7 +40,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,6 +51,8 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -230,28 +235,52 @@ public class DocumentServiceImpl implements DocumentServiceI {
         DownloadResult result = downloadFile(url);
         if (result == null) throw new IOException("无法下载文件: " + url);
 
+        // 处理文件名
         String fileName = result.getFileName();
-        if (StringUtils.hasText(metadata.getTitle())) {
-            String ext = "";
-            if (fileName.contains(".")) ext = fileName.substring(fileName.lastIndexOf("."));
-            fileName = metadata.getTitle() + ext;
+        if (fileName == null || fileName.isEmpty() || "downloaded_file".equals(fileName)) {
+            String title = metadata.getTitle();
+            if (title != null && !title.isEmpty()) {
+                String ext = "";
+                try {
+                    String path = URI.create(url).getPath();
+                    if (path.contains(".")) {
+                        ext = path.substring(path.lastIndexOf("."));
+                    }
+                } catch (Exception ignored) {
+                }
+                if (ext.isEmpty()) {
+                    ext = ".pdf";
+                }
+                fileName = title + ext;
+            } else {
+                if (!fileName.contains(".")) {
+                    fileName += ".pdf";
+                }
+            }
         }
 
-        String savedPath = saveFile(result.getInputStream(), fileName);
+        // 校验文件头
+        byte[] content = result.getContent();
+        if (content.length < 4) {
+            throw new IOException("下载的文件内容不足，可能已损坏");
+        }
+        String header = new String(content, 0, Math.min(4, content.length), StandardCharsets.UTF_8);
+        if (fileName.toLowerCase().endsWith(".pdf") && !header.startsWith("%PDF")) {
+            throw new IOException("下载的文件不是有效的PDF格式");
+        }
 
-        // 构造 MultipartFile 用于复用处理逻辑
-        MultipartFile multipartFile = new ByteArrayMultipartFile(
-                result.getInputStream().readAllBytes(),
-                fileName,
-                fileName
-        );
+        // 保存文件
+        String savedPath = saveFile(content, fileName);
+
+        // 构造 MultipartFile
+        MultipartFile multipartFile = new ByteArrayMultipartFile(content, fileName, fileName);
 
         // 先插入文档记录
         KbDocument doc = new KbDocument();
         doc.setTitle(StringUtils.hasText(metadata.getTitle()) ? metadata.getTitle() : fileName);
         doc.setFileName(fileName);
         doc.setFilePath(savedPath);
-        doc.setFileSize(result.getFileSize());
+        doc.setFileSize((long) content.length);
         doc.setFileType(getFileExtension(fileName));
         doc.setUploaderId(currentUserId);
         doc.setDepartmentId(metadata.getDepartmentId());
@@ -445,27 +474,60 @@ public class DocumentServiceImpl implements DocumentServiceI {
         return targetPath.toString();
     }
 
+    private String saveFile(byte[] content, String fileName) throws IOException {
+        String uniqueName = UUID.randomUUID().toString() + "_" + fileName;
+        Path targetPath = Paths.get(uploadDir, uniqueName);
+        Files.write(targetPath, content);
+        return targetPath.toString();
+    }
+
     private DownloadResult downloadFile(String url) throws IOException {
         if (!isValidUrl(url)) throw new IOException("无效的URL");
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0");
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
-
+        HttpURLConnection connection = null;
         try {
-            ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new IOException("下载失败，状态码: " + response.getStatusCode());
-            }
-            byte[] body = response.getBody();
-            if (body == null || body.length == 0) throw new IOException("下载内容为空");
-            if (body.length > MAX_FILE_SIZE) throw new IOException("文件超过50MB限制");
+            URL downloadUrl = new URL(url);
+            connection = (HttpURLConnection) downloadUrl.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(30000);
+            connection.setReadTimeout(30000);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-            String fileName = extractFileNameFromResponse(response, url);
-            long fileSize = body.length;
-            InputStream inputStream = new ByteArrayInputStream(body);
-            return new DownloadResult(fileName, inputStream, fileSize);
+            int statusCode = connection.getResponseCode();
+            if (statusCode != HttpURLConnection.HTTP_OK) {
+                throw new IOException("下载失败，HTTP状态码: " + statusCode);
+            }
+
+            long fileSize = connection.getContentLengthLong();
+            if (fileSize > MAX_FILE_SIZE) {
+                throw new IOException("文件超过50MB限制");
+            }
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (InputStream is = connection.getInputStream()) {
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = is.read(buffer)) != -1) {
+                    baos.write(buffer, 0, bytesRead);
+                }
+            }
+            byte[] content = baos.toByteArray();
+
+            String fileName = extractFileNameFromHeaders(connection);
+            if (fileName == null) {
+                String path = new URI(url).getPath();
+                fileName = path.substring(path.lastIndexOf("/") + 1);
+                if (fileName.isEmpty()) {
+                    fileName = "downloaded_file";
+                }
+            }
+
+            return new DownloadResult(fileName, content);
+
         } catch (Exception e) {
+            if (connection != null) {
+                connection.disconnect();
+            }
             throw new IOException("下载失败: " + e.getMessage(), e);
         }
     }
@@ -646,13 +708,13 @@ public class DocumentServiceImpl implements DocumentServiceI {
     // ==================== 内部类 ====================
     private static class DownloadResult {
         private final String fileName;
-        private final InputStream inputStream;
+        private final byte[] content;
         private final long fileSize;
 
-        public DownloadResult(String fileName, InputStream inputStream, long fileSize) {
+        public DownloadResult(String fileName, byte[] content) {
             this.fileName = fileName;
-            this.inputStream = inputStream;
-            this.fileSize = fileSize;
+            this.content = content;
+            this.fileSize = content.length;
         }
 
         public String getFileName() {
@@ -660,11 +722,15 @@ public class DocumentServiceImpl implements DocumentServiceI {
         }
 
         public InputStream getInputStream() {
-            return inputStream;
+            return new ByteArrayInputStream(content);
         }
 
         public long getFileSize() {
             return fileSize;
+        }
+
+        public byte[] getContent() {
+            return content;
         }
     }
 
@@ -787,5 +853,16 @@ public class DocumentServiceImpl implements DocumentServiceI {
     }
 
 
-
+    private String extractFileNameFromHeaders(HttpURLConnection connection) {
+        String disposition = connection.getHeaderField("Content-Disposition");
+        if (disposition != null && !disposition.isEmpty()) {
+            // 解析 filename=xxx 或 filename="xxx"
+            Pattern pattern = Pattern.compile("filename=\"?([^\";]+)\"?");
+            Matcher matcher = pattern.matcher(disposition);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        }
+        return null;
+    }
 }

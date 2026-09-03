@@ -11,27 +11,49 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         .wrapper { display: flex; min-height: 100vh; }
-        .sidebar { width: 220px; background: #1a1a2e; color: #fff; padding: 20px 0; position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto; z-index: 100; }
+        .sidebar {
+            width: 220px;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 20px 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
         .sidebar-brand { padding: 0 20px 20px; font-size: 20px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.1); }
         .sidebar-brand i { margin-right: 10px; }
         .sidebar .nav-link { color: rgba(255,255,255,0.7); padding: 10px 20px; border-radius: 0; transition: all 0.2s; }
         .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); }
         .sidebar .nav-link i { margin-right: 10px; }
         .main-content { margin-left: 220px; flex: 1; padding: 20px; min-height: 100vh; }
-        .topbar { background: white; padding: 12px 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .topbar {
+            background: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
         .topbar .user-info { font-size: 14px; }
         .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
         .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
         .filter-bar .form-control, .filter-bar .form-select { width: auto; min-width: 150px; }
-        .table-container { overflow-x: auto; }
-        .doc-status { padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+        .doc-status { padding: 2px 10px; border-radius: 12px; font-size: 12px; display: inline-block; }
         .doc-status.success { background: #d4edda; color: #155724; }
         .doc-status.pending { background: #fff3cd; color: #856404; }
         .doc-status.failed { background: #f8d7da; color: #721c24; }
-        .action-btn { padding: 2px 8px; font-size: 12px; margin: 0 2px; }
+        .visibility-badge { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: #e8edf4; color: #1a73e8; }
+        .visibility-badge.public { background: #d4edda; color: #155724; }
+        .action-btn { padding: 4px 10px; font-size: 12px; margin: 0 2px; }
         .upload-btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
         .upload-btn-group .btn { white-space: nowrap; }
+        .text-ellipsis { max-width: 120px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
         @media (max-width: 768px) {
             .sidebar { width: 60px; }
             .sidebar-brand span, .sidebar .nav-link span { display: none; }
@@ -39,6 +61,7 @@
             .sidebar .nav-link i { margin-right: 0; font-size: 20px; }
             .main-content { margin-left: 60px; padding: 12px; }
             .filter-bar .form-control, .filter-bar .form-select { width: 100%; }
+            .table-responsive { font-size: 13px; }
         }
     </style>
 </head>
@@ -84,7 +107,7 @@
             </div>
 
             <!-- 文档表格 -->
-            <div class="table-container">
+            <div class="table-responsive">
                 <table class="table table-hover align-middle">
                     <thead class="table-light">
                     <tr>
@@ -93,15 +116,14 @@
                         <th>文件名</th>
                         <th>上传人</th>
                         <th>部门</th>
-                        <th>可见性</th>
-                        <th>状态</th>
-                        <th>片段数</th>
-                        <th>下载量</th>
-                        <th style="width:200px;">操作</th>
+                        <th style="width:120px;">可见性</th>
+                        <th style="width:80px;">状态</th>
+                        <th style="width:60px;">片段</th>
+                        <th style="width:80px;">操作</th>
                     </tr>
                     </thead>
                     <tbody id="docTableBody">
-                    <tr><td colspan="10" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -209,7 +231,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button class="btn btn-primary" id="submitUrlBtn">上传</button>
+                <button class="btn btn-primary" id="submitUrlBtn">开始上传</button>
             </div>
         </div>
     </div>
@@ -219,17 +241,15 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
     // ================================================================
-    // 1. 认证检查 & 全局拦截
+    // 认证 & 全局拦截
     // ================================================================
     const token = localStorage.getItem('token');
-    if (!token) {
-        window.location.href = '/login';
-    }
+    if (!token) window.location.href = '/login';
 
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const url = args[0];
-        if (typeof url === 'string' && (url.includes('/api/auth/') || url.includes('/login') || url.includes('/register'))) {
+        if (typeof url === 'string' && url.includes('/api/auth/')) {
             return originalFetch.apply(this, args);
         }
         const options = args[1] || {};
@@ -239,11 +259,7 @@
         return originalFetch.apply(this, args);
     };
 
-    // ================================================================
-    // 2. 用户信息 & 退出
-    // ================================================================
-    document.getElementById('currentUser').textContent =
-        localStorage.getItem('realName') || localStorage.getItem('username') || '用户';
+    document.getElementById('currentUser').textContent = localStorage.getItem('realName') || localStorage.getItem('username');
 
     document.getElementById('logoutBtn').addEventListener('click', function(e) {
         e.preventDefault();
@@ -252,28 +268,27 @@
     });
 
     // ================================================================
-    // 3. 全局变量
-    // ================================================================
-    let currentPage = 1;
-    const pageSize = 10;
-    let totalPages = 1;
-    let allDepartments = [];
-
-    // ================================================================
-    // 4. 加载部门列表（用于筛选和上传下拉）
+    // 加载部门列表
     // ================================================================
     async function loadDepartments() {
         try {
             const resp = await fetch('/api/departments/tree');
             const data = await resp.json();
             if (data.success) {
-                allDepartments = flattenTree(data.data || []);
-                populateDepartmentSelects(allDepartments);
-            } else {
-                console.warn('加载部门列表失败:', data.message);
+                const flat = flattenTree(data.data);
+                const selects = ['deptFilter', 'fileDepartment', 'urlDepartment'];
+                selects.forEach(id => {
+                    const sel = document.getElementById(id);
+                    if (!sel) return;
+                    let html = '<option value="">请选择</option>';
+                    flat.forEach(d => {
+                        html += `<option value="${d.id}">${d.deptName}</option>`;
+                    });
+                    sel.innerHTML = html;
+                });
             }
         } catch (err) {
-            console.warn('加载部门列表异常:', err);
+            console.error('加载部门失败', err);
         }
     }
 
@@ -288,96 +303,66 @@
         return result;
     }
 
-    function populateDepartmentSelects(departments) {
-        // 筛选下拉
-        const filterSelect = document.getElementById('deptFilter');
-        let filterHtml = '<option value="">全部部门</option>';
-        departments.forEach(d => {
-            filterHtml += `<option value="${d.id}">${d.deptName}</option>`;
-        });
-        filterSelect.innerHTML = filterHtml;
-
-        // 文件上传模态框部门下拉
-        const fileDeptSelect = document.getElementById('fileDepartment');
-        let fileHtml = '<option value="">请选择</option>';
-        departments.forEach(d => {
-            fileHtml += `<option value="${d.id}">${d.deptName}</option>`;
-        });
-        fileDeptSelect.innerHTML = fileHtml;
-
-        // URL上传模态框部门下拉
-        const urlDeptSelect = document.getElementById('urlDepartment');
-        urlDeptSelect.innerHTML = fileHtml;
-    }
-
     // ================================================================
-    // 5. 加载文档列表
+    // 文档列表
     // ================================================================
+    let currentPage = 1;
+    const pageSize = 10;
+    let totalPages = 1;
+
     async function loadDocuments(page = 1) {
         const keyword = document.getElementById('keyword').value.trim();
         const deptId = document.getElementById('deptFilter').value;
-
-        const params = new URLSearchParams({
-            page: page,
-            size: pageSize
-        });
+        const params = new URLSearchParams({ page, size: pageSize });
         if (keyword) params.append('keyword', keyword);
         if (deptId) params.append('departmentId', deptId);
 
         try {
             const resp = await fetch('/api/documents/list?' + params.toString());
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
-            if (!data.success) throw new Error(data.message || '加载失败');
+            if (!data.success) throw new Error(data.message);
 
             renderTable(data.data || []);
             renderPagination(data.total || 0, data.page || 1, data.size || pageSize);
             currentPage = data.page || 1;
         } catch (err) {
-            console.error('加载文档列表失败:', err);
             document.getElementById('docTableBody').innerHTML =
-                `<tr><td colspan="10" class="text-center text-danger py-3">❌ 加载失败：${err.message}</td></tr>`;
+                `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${err.message}</td></tr>`;
         }
     }
 
-    // ================================================================
-    // 6. 渲染表格
-    // ================================================================
     function renderTable(docs) {
         const tbody = document.getElementById('docTableBody');
         if (!docs || docs.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">📭 暂无文档</td></tr>`;
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">📭 暂无文档</td></tr>';
             return;
         }
 
-        const isAdmin = localStorage.getItem('username') === 'admin';
         let html = '';
         docs.forEach(d => {
-            const statusClass = d.status === 1 ? 'success' : (d.status === 0 ? 'pending' : 'failed');
-            const statusText = d.status === 1 ? '已处理' : (d.status === 0 ? '待处理' : '失败');
-            const visibleText = d.visibleText || '未知';
-            const canDelete = isAdmin || d.uploaderId == localStorage.getItem('userId');
-
+            const statusClass = d.status === 1 ? 'success' : d.status === 0 ? 'pending' : 'failed';
+            const statusText = d.status === 1 ? '已处理' : d.status === 0 ? '待处理' : '失败';
+            const isPublic = d.isPublic === 1 ? '公开' : '内部';
+            const visibleMap = {1:'本部门',2:'全公司',3:'指定部门'};
+            const visibleText = visibleMap[d.visibleType] || '未知';
+            const isPublicClass = d.isPublic === 1 ? 'public' : '';
             html += `
                 <tr>
                     <td>${d.id}</td>
-                    <td><span class="fw-medium">${d.title || '-'}</span></td>
-                    <td>${d.fileName || '-'}</td>
+                    <td><span class="text-ellipsis" title="${d.title || '-'}">${d.title || '-'}</span></td>
+                    <td><span class="text-ellipsis" title="${d.fileName || '-'}">${d.fileName || '-'}</span></td>
                     <td>${d.uploaderName || '-'}</td>
                     <td>${d.departmentName || '-'}</td>
-                    <td>${visibleText}</td>
+                    <td>
+                        <span class="visibility-badge">${visibleText}</span>
+                        <span class="visibility-badge ${isPublicClass}">${isPublic}</span>
+                    </td>
                     <td><span class="doc-status ${statusClass}">${statusText}</span></td>
                     <td>${d.chunkCount || 0}</td>
-                    <td>${d.viewCount || 0}</td>
                     <td>
-                        <div class="d-flex flex-wrap gap-1">
-                            <a href="/api/documents/download/${d.id}" class="btn btn-sm btn-outline-primary action-btn" title="下载">
-                                <i class="bi bi-download"></i>
-                            </a>
-                            ${canDelete ? `<button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteDocument(${d.id})" title="删除">
-                                <i class="bi bi-trash3"></i>
-                            </button>` : ''}
-                        </div>
+                        <button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteDoc(${d.id})" title="删除">
+                            <i class="bi bi-trash3"></i>
+                        </button>
                     </td>
                 </tr>
             `;
@@ -385,42 +370,21 @@
         tbody.innerHTML = html;
     }
 
-    // ================================================================
-    // 7. 渲染分页
-    // ================================================================
     function renderPagination(total, page, size) {
         totalPages = Math.ceil(total / size);
         const ul = document.getElementById('pagination');
-        if (totalPages <= 1) {
-            ul.innerHTML = '';
-            return;
-        }
+        if (totalPages <= 1) { ul.innerHTML = ''; return; }
 
-        let html = '';
-        html += `<li class="page-item ${page <= 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" data-page="${page - 1}">上一页</a>
-        </li>`;
-        const start = Math.max(1, page - 2);
-        const end = Math.min(totalPages, page + 2);
-        if (start > 1) {
-            html += `<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`;
-            if (start > 2) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
-        }
-        for (let i = start; i <= end; i++) {
+        let html = `<li class="page-item ${page <= 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${page-1}">上一页</a></li>`;
+        for (let i = 1; i <= totalPages; i++) {
             html += `<li class="page-item ${i === page ? 'active' : ''}">
-                <a class="page-link" href="#" data-page="${i}">${i}</a>
-            </li>`;
-        }
-        if (end < totalPages) {
-            if (end < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
-            html += `<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`;
+                <a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
         }
         html += `<li class="page-item ${page >= totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" data-page="${page + 1}">下一页</a>
-        </li>`;
+            <a class="page-link" href="#" data-page="${page+1}">下一页</a></li>`;
         ul.innerHTML = html;
-
-        ul.querySelectorAll('a.page-link[data-page]').forEach(a => {
+        ul.querySelectorAll('a.page-link').forEach(a => {
             a.addEventListener('click', function(e) {
                 e.preventDefault();
                 const p = parseInt(this.dataset.page);
@@ -430,7 +394,7 @@
     }
 
     // ================================================================
-    // 8. 搜索 & 重置
+    // 搜索与重置
     // ================================================================
     document.getElementById('searchBtn').addEventListener('click', () => loadDocuments(1));
     document.getElementById('resetBtn').addEventListener('click', () => {
@@ -443,82 +407,36 @@
     });
 
     // ================================================================
-    // 9. 删除文档
-    // ================================================================
-    async function deleteDocument(id) {
-        const confirm = await Swal.fire({
-            title: '确认删除',
-            text: '删除后文档及其向量数据将被移除，不可恢复',
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: '确认删除',
-            cancelButtonText: '取消',
-            confirmButtonColor: '#d33'
-        });
-        if (!confirm.isConfirmed) return;
-
-        try {
-            const resp = await fetch(`/api/documents/${id}`, { method: 'DELETE' });
-            const data = await resp.json();
-            if (data.success) {
-                Swal.fire('✅ 删除成功', '', 'success');
-                loadDocuments(currentPage);
-            } else {
-                Swal.fire('❌ 删除失败', data.message, 'error');
-            }
-        } catch (err) {
-            Swal.fire('❌ 请求失败', err.message, 'error');
-        }
-    }
-    window.deleteDocument = deleteDocument; // 暴露到全局
-
-    // ================================================================
-    // 10. 上传文件模态框
+    // 上传文件
     // ================================================================
     document.getElementById('uploadFileBtn').addEventListener('click', function() {
-        // 重置表单
-        document.getElementById('uploadFileForm').reset();
-        document.getElementById('fileUploadProgress').innerHTML = '';
-        const modal = new bootstrap.Modal(document.getElementById('uploadFileModal'));
-        modal.show();
+        new bootstrap.Modal(document.getElementById('uploadFileModal')).show();
     });
 
     document.getElementById('submitFileBtn').addEventListener('click', async function() {
-        const fileInput = document.getElementById('fileInput');
-        const file = fileInput.files[0];
-        if (!file) {
-            Swal.fire('请选择文件', '', 'warning');
-            return;
-        }
-
+        const file = document.getElementById('fileInput').files[0];
+        if (!file) { Swal.fire('请选择文件', '', 'warning'); return; }
         const title = document.getElementById('fileTitle').value.trim();
         const departmentId = document.getElementById('fileDepartment').value;
-        if (!departmentId) {
-            Swal.fire('请选择归属部门', '', 'warning');
-            return;
-        }
-
+        if (!departmentId) { Swal.fire('请选择归属部门', '', 'warning'); return; }
         const visibleType = parseInt(document.getElementById('fileVisibleType').value);
         const isPublic = document.getElementById('fileIsPublic').value === 'true';
 
         const formData = new FormData();
         formData.append('file', file);
-        if (title) formData.append('title', title);
+        formData.append('title', title);
         formData.append('departmentId', departmentId);
         formData.append('visibleType', visibleType);
         formData.append('isPublic', isPublic);
 
         this.disabled = true;
-        document.getElementById('fileUploadProgress').innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">上传中...</span></div>';
+        document.getElementById('fileUploadProgress').innerHTML = '<div class="spinner-border text-primary"></div>';
 
         try {
-            const resp = await fetch('/api/documents/upload/metadata', {
-                method: 'POST',
-                body: formData
-            });
+            const resp = await fetch('/api/documents/upload/metadata', { method: 'POST', body: formData });
             const data = await resp.json();
             if (data.success) {
-                Swal.fire('✅ 上传成功', `文档已上传，共 ${data.data?.chunkCount || 0} 个片段`, 'success');
+                await Swal.fire('✅ 上传成功', `文档已处理，共 ${data.data.chunkCount} 个片段`, 'success');
                 bootstrap.Modal.getInstance(document.getElementById('uploadFileModal')).hide();
                 loadDocuments(currentPage);
             } else {
@@ -529,45 +447,31 @@
         } finally {
             this.disabled = false;
             document.getElementById('fileUploadProgress').innerHTML = '';
+            document.getElementById('fileInput').value = '';
+            document.getElementById('fileTitle').value = '';
         }
     });
 
     // ================================================================
-    // 11. 从URL上传模态框
+    // URL上传
     // ================================================================
     document.getElementById('uploadUrlBtn').addEventListener('click', function() {
-        document.getElementById('uploadUrlForm').reset();
-        document.getElementById('urlUploadProgress').innerHTML = '';
-        const modal = new bootstrap.Modal(document.getElementById('uploadUrlModal'));
-        modal.show();
+        new bootstrap.Modal(document.getElementById('uploadUrlModal')).show();
     });
 
     document.getElementById('submitUrlBtn').addEventListener('click', async function() {
         const url = document.getElementById('urlInput').value.trim();
         const title = document.getElementById('urlTitle').value.trim();
         const departmentId = document.getElementById('urlDepartment').value;
-        if (!url) {
-            Swal.fire('请输入文件URL', '', 'warning');
-            return;
-        }
-        if (!departmentId) {
-            Swal.fire('请选择归属部门', '', 'warning');
-            return;
-        }
-
+        if (!url) { Swal.fire('请输入文件URL', '', 'warning'); return; }
+        if (!departmentId) { Swal.fire('请选择归属部门', '', 'warning'); return; }
         const visibleType = parseInt(document.getElementById('urlVisibleType').value);
         const isPublic = document.getElementById('urlIsPublic').value === 'true';
 
-        const payload = {
-            url,
-            title: title || undefined,
-            departmentId: parseInt(departmentId),
-            visibleType,
-            isPublic
-        };
+        const payload = { url, title, departmentId, visibleType, isPublic };
 
         this.disabled = true;
-        document.getElementById('urlUploadProgress').innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">上传中...</span></div>';
+        document.getElementById('urlUploadProgress').innerHTML = '<div class="spinner-border text-primary"></div>';
 
         try {
             const resp = await fetch('/api/documents/upload/url', {
@@ -577,7 +481,7 @@
             });
             const data = await resp.json();
             if (data.success) {
-                Swal.fire('✅ 上传成功', `文档已从URL上传，共 ${data.data?.chunkCount || 0} 个片段`, 'success');
+                await Swal.fire('✅ URL上传成功', `文档已处理，共 ${data.data.chunkCount} 个片段`, 'success');
                 bootstrap.Modal.getInstance(document.getElementById('uploadUrlModal')).hide();
                 loadDocuments(currentPage);
             } else {
@@ -588,18 +492,45 @@
         } finally {
             this.disabled = false;
             document.getElementById('urlUploadProgress').innerHTML = '';
+            document.getElementById('urlInput').value = '';
+            document.getElementById('urlTitle').value = '';
         }
     });
 
     // ================================================================
-    // 12. 初始化
+    // 删除文档
     // ================================================================
-    async function init() {
-        await loadDepartments();
-        await loadDocuments(1);
-    }
+    window.deleteDoc = async function(docId) {
+        const result = await Swal.fire({
+            title: '确认删除',
+            text: '删除后将同时删除向量数据，不可恢复！',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: '确认删除',
+            cancelButtonText: '取消',
+            confirmButtonColor: '#d33'
+        });
+        if (!result.isConfirmed) return;
 
-    init();
+        try {
+            const resp = await fetch(`/api/documents/${docId}`, { method: 'DELETE' });
+            const data = await resp.json();
+            if (data.success) {
+                await Swal.fire('✅ 删除成功', '', 'success');
+                loadDocuments(currentPage);
+            } else {
+                Swal.fire('❌ 删除失败', data.message, 'error');
+            }
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        }
+    };
+
+    // ================================================================
+    // 初始化
+    // ================================================================
+    loadDepartments();
+    loadDocuments(1);
 </script>
 </body>
 </html>
