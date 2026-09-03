@@ -2,8 +2,7 @@ package com.example.springai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.example.springai.dto.UserDetailDTO;
-import com.example.springai.dto.UserListDTO;
+import com.example.springai.dto.*;
 import com.example.springai.entity.SysDepartment;
 import com.example.springai.entity.SysRole;
 import com.example.springai.entity.SysUser;
@@ -16,6 +15,7 @@ import com.example.springai.service.EmailServiceI;
 import com.example.springai.service.UserServiceI;
 import com.example.springai.utils.PasswordGenerator;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -215,7 +215,76 @@ public class UserServiceImpl implements UserServiceI {
         log.info("用户 {} 密码已重置", userId);
         return rawPassword; // 返回明文密码（供管理员告知用户）
     }
+    @Override
+    public UserInfoDTO getCurrentUserInfo(Long userId) {
+        SysUser user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        UserInfoDTO dto = new UserInfoDTO();
+        BeanUtils.copyProperties(user, dto);
+        // 部门名称
+        if (user.getDepartmentId() != null) {
+            SysDepartment dept = departmentMapper.selectById(user.getDepartmentId());
+            if (dept != null) {
+                dto.setDepartmentName(dept.getDeptName());
+            }
+        }
+        return dto;
+    }
 
+    @Override
+    @Transactional
+    public void updateUserInfo(Long userId, UpdateUserInfoRequest request) {
+        SysUser user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        // 只允许修改部分字段
+        if (request.getRealName() != null) {
+            user.setRealName(request.getRealName());
+        }
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
+        }
+        if (request.getEmail() != null) {
+            // 检查邮箱是否已被其他用户使用
+            SysUser existing = userMapper.selectOne(
+                    new QueryWrapper<SysUser>().eq("email", request.getEmail()).ne("id", userId)
+            );
+            if (existing != null) {
+                throw new RuntimeException("邮箱已被其他用户使用");
+            }
+            user.setEmail(request.getEmail());
+        }
+        userMapper.updateById(user);
+        log.info("用户 {} 信息已更新", userId);
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        SysUser user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        // 验证旧密码
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            throw new RuntimeException("旧密码错误");
+        }
+        // 加密新密码
+        String encoded = passwordEncoder.encode(request.getNewPassword());
+        user.setPassword(encoded);
+        userMapper.updateById(user);
+        log.info("用户 {} 密码已修改", userId);
+    }
+
+    @Override
+    public SysUser findByUsernameOrEmail(String usernameOrEmail) {
+        return userMapper.selectOne(
+                new QueryWrapper<SysUser>().eq("username", usernameOrEmail).or().eq("email", usernameOrEmail)
+        );
+    }
     // 辅助方法：从Authentication中提取userId
     private Long getCurrentUserId(Authentication authentication) {
         String username = authentication.getName();

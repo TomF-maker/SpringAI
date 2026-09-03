@@ -30,4 +30,19 @@ public class PageController {
     public String users() {
         return "users";
     }
+
+    @GetMapping("/documents")
+    public String documents() {
+        return "documents";
+    }
+
+    @GetMapping("/departments")
+    public String departments() {
+        return "departments";
+    }
+
+    @GetMapping("/profile")
+    public String profile() {
+        return "profile";
+    }
 }

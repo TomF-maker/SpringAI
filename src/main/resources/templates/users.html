@@ -6,6 +6,9 @@
     <title>用户管理 - 采购智能助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- SweetAlert2 CSS & JS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -354,7 +357,15 @@
     async function toggleStatus(userId, currentStatus) {
         const newStatus = currentStatus === 1 ? 0 : 1;
         const action = newStatus === 0 ? '禁用' : '启用';
-        if (!confirm(`确认${action}该用户？`)) return;
+        const result = await Swal.fire({
+            title: `确认${action}`,
+            text: `您确定要${action}该用户吗？`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: `确认${action}`,
+            cancelButtonText: '取消'
+        });
+        if (!result.isConfirmed) return;
 
         try {
             const resp = await fetch(`/api/users/${userId}/status`, {
@@ -364,13 +375,13 @@
             });
             const data = await resp.json();
             if (data.success) {
-                alert(`✅ ${action}成功`);
+                Swal.fire('✅ 操作成功', `用户已${action}`, 'success');
                 loadUsers(currentPage);
             } else {
-                alert(`❌ ${action}失败：${data.message || '未知错误'}`);
+                Swal.fire('❌ 操作失败', data.message, 'error');
             }
         } catch (err) {
-            alert('❌ 请求失败：' + err.message);
+            Swal.fire('❌ 请求失败', err.message, 'error');
         }
     }
 
@@ -378,21 +389,32 @@
     // 10. 重置密码
     // ================================================================
     async function resetPassword(userId) {
-        if (!confirm('确认重置该用户密码？新密码将发送至用户邮箱。')) return;
+        const result = await Swal.fire({
+            title: '重置密码',
+            text: '确认重置该用户密码？新密码将由系统随机生成。',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: '确认重置',
+            cancelButtonText: '取消',
+            confirmButtonColor: '#d33'
+        });
+        if (!result.isConfirmed) return;
 
         try {
-            const resp = await fetch(`/api/users/${userId}/password/reset`, {
-                method: 'PUT'
-            });
+            const resp = await fetch(`/api/users/${userId}/password/reset`, { method: 'PUT' });
             const data = await resp.json();
             if (data.success) {
-                alert('✅ 密码已重置，新密码已发送至用户邮箱。');
+                await Swal.fire({
+                    title: '✅ 重置成功',
+                    html: `新密码：<strong>${data.newPassword}</strong><br><small>请复制后安全告知用户。</small>`,
+                    icon: 'success'
+                });
                 loadUsers(currentPage);
             } else {
-                alert('❌ 重置失败：' + data.message);
+                Swal.fire('❌ 重置失败', data.message, 'error');
             }
         } catch (err) {
-            alert('❌ 请求失败：' + err.message);
+            Swal.fire('❌ 请求失败', err.message, 'error');
         }
     }
 

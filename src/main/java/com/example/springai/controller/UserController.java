@@ -1,14 +1,13 @@
 package com.example.springai.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.example.springai.dto.AssignRoleRequest;
-import com.example.springai.dto.UpdateStatusRequest;
-import com.example.springai.dto.UserDetailDTO;
-import com.example.springai.dto.UserListDTO;
+import com.example.springai.dto.*;
+import com.example.springai.entity.SysUser;
 import com.example.springai.service.UserServiceI;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -74,6 +73,41 @@ public class UserController {
         result.put("success", true);
         result.put("message", "密码已重置");
         result.put("newPassword", newPassword);  // 返回明文密码
+        return result;
+    }
+
+    @GetMapping("/me")
+    public Map<String, Object> getCurrentUser(Authentication authentication) {
+        String username = authentication.getName();
+        SysUser user = userService.findByUsernameOrEmail(username); // 需要新增此方法
+        UserInfoDTO info = userService.getCurrentUserInfo(user.getId());
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("data", info);
+        return result;
+    }
+
+    @PutMapping("/me")
+    public Map<String, Object> updateUserInfo(Authentication authentication,
+                                              @RequestBody UpdateUserInfoRequest request) {
+        String username = authentication.getName();
+        SysUser user = userService.findByUsernameOrEmail(username);
+        userService.updateUserInfo(user.getId(), request);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("message", "信息更新成功");
+        return result;
+    }
+
+    @PutMapping("/me/password")
+    public Map<String, Object> changePassword(Authentication authentication,
+                                              @RequestBody ChangePasswordRequest request) {
+        String username = authentication.getName();
+        SysUser user = userService.findByUsernameOrEmail(username);
+        userService.changePassword(user.getId(), request);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("message", "密码修改成功");
         return result;
     }
 }
