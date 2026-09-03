@@ -2,11 +2,12 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文档管理 - 采购智能助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <style>
-        /* 复用 users.html 的样式 */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         .wrapper { display: flex; min-height: 100vh; }
@@ -20,18 +21,29 @@
         .topbar { background: white; padding: 12px 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         .topbar .user-info { font-size: 14px; }
         .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
-        .content-card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-        .page-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
+        .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+        .filter-bar .form-control, .filter-bar .form-select { width: auto; min-width: 150px; }
+        .table-container { overflow-x: auto; }
+        .doc-status { padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+        .doc-status.success { background: #d4edda; color: #155724; }
+        .doc-status.pending { background: #fff3cd; color: #856404; }
+        .doc-status.failed { background: #f8d7da; color: #721c24; }
+        .action-btn { padding: 2px 8px; font-size: 12px; margin: 0 2px; }
+        .upload-btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .upload-btn-group .btn { white-space: nowrap; }
         @media (max-width: 768px) {
             .sidebar { width: 60px; }
             .sidebar-brand span, .sidebar .nav-link span { display: none; }
             .sidebar .nav-link { text-align: center; padding: 12px 0; }
             .sidebar .nav-link i { margin-right: 0; font-size: 20px; }
             .main-content { margin-left: 60px; padding: 12px; }
+            .filter-bar .form-control, .filter-bar .form-select { width: 100%; }
         }
     </style>
 </head>
 <body>
+
 <div class="wrapper">
     <!-- 侧边栏 -->
     <div class="sidebar">
@@ -57,28 +69,537 @@
         </div>
 
         <div class="content-card">
-            <div class="page-title">📄 文档管理</div>
-            <p class="text-muted">文档管理功能开发中，敬请期待...</p>
-            <div class="mt-3">
-                <button class="btn btn-primary" disabled><i class="bi bi-upload"></i> 上传文档（开发中）</button>
+            <!-- 过滤和操作栏 -->
+            <div class="filter-bar">
+                <input type="text" id="keyword" class="form-control" placeholder="🔍 搜索标题/文件名" style="flex:1; min-width:180px;">
+                <select id="deptFilter" class="form-select">
+                    <option value="">全部部门</option>
+                </select>
+                <button class="btn btn-primary" id="searchBtn"><i class="bi bi-search"></i> 搜索</button>
+                <button class="btn btn-outline-secondary" id="resetBtn"><i class="bi bi-arrow-counterclockwise"></i> 重置</button>
+                <div class="upload-btn-group ms-auto">
+                    <button class="btn btn-success" id="uploadFileBtn"><i class="bi bi-upload"></i> 上传文件</button>
+                    <button class="btn btn-outline-success" id="uploadUrlBtn"><i class="bi bi-link-45deg"></i> 从URL上传</button>
+                </div>
+            </div>
+
+            <!-- 文档表格 -->
+            <div class="table-container">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                    <tr>
+                        <th style="width:50px;">ID</th>
+                        <th>标题</th>
+                        <th>文件名</th>
+                        <th>上传人</th>
+                        <th>部门</th>
+                        <th>可见性</th>
+                        <th>状态</th>
+                        <th>片段数</th>
+                        <th>下载量</th>
+                        <th style="width:200px;">操作</th>
+                    </tr>
+                    </thead>
+                    <tbody id="docTableBody">
+                    <tr><td colspan="10" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <nav aria-label="Page navigation" class="mt-3">
+                <ul class="pagination justify-content-end" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 上传文件模态框 ========== -->
+<div class="modal fade" id="uploadFileModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-upload"></i> 上传文档</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="uploadFileForm">
+                    <div class="mb-3">
+                        <label class="form-label">选择文件 <span class="text-danger">*</span></label>
+                        <input type="file" class="form-control" id="fileInput" accept=".pdf,.doc,.docx,.txt,.md" required>
+                        <small class="text-muted">支持 PDF、DOC、DOCX、TXT、MD 格式，最大 50MB</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">文档标题（可选）</label>
+                        <input type="text" class="form-control" id="fileTitle" placeholder="留空则使用文件名">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">归属部门 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="fileDepartment" required></select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">可见性</label>
+                            <select class="form-select" id="fileVisibleType">
+                                <option value="1">本部门</option>
+                                <option value="2">全公司</option>
+                                <option value="3">指定部门</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">是否公开</label>
+                        <select class="form-select" id="fileIsPublic">
+                            <option value="false">否（内部文档）</option>
+                            <option value="true">是（公开文档）</option>
+                        </select>
+                    </div>
+                    <div id="fileUploadProgress" class="text-center"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" id="submitFileBtn">上传</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 从URL上传模态框 ========== -->
+<div class="modal fade" id="uploadUrlModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-link-45deg"></i> 从URL上传文档</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="uploadUrlForm">
+                    <div class="mb-3">
+                        <label class="form-label">文件URL <span class="text-danger">*</span></label>
+                        <input type="url" class="form-control" id="urlInput" placeholder="https://example.com/document.pdf" required>
+                        <small class="text-muted">支持 PDF、DOC、DOCX、TXT、MD 格式</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">文档标题（可选）</label>
+                        <input type="text" class="form-control" id="urlTitle" placeholder="留空则使用文件名">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">归属部门 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="urlDepartment" required></select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">可见性</label>
+                            <select class="form-select" id="urlVisibleType">
+                                <option value="1">本部门</option>
+                                <option value="2">全公司</option>
+                                <option value="3">指定部门</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">是否公开</label>
+                        <select class="form-select" id="urlIsPublic">
+                            <option value="false">否（内部文档）</option>
+                            <option value="true">是（公开文档）</option>
+                        </select>
+                    </div>
+                    <div id="urlUploadProgress" class="text-center"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" id="submitUrlBtn">上传</button>
             </div>
         </div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
-    // 认证检查
+    // ================================================================
+    // 1. 认证检查 & 全局拦截
+    // ================================================================
     const token = localStorage.getItem('token');
-    if (!token) window.location.href = '/login';
-    document.getElementById('currentUser').textContent = localStorage.getItem('realName') || localStorage.getItem('username');
+    if (!token) {
+        window.location.href = '/login';
+    }
 
-    // 退出
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const url = args[0];
+        if (typeof url === 'string' && (url.includes('/api/auth/') || url.includes('/login') || url.includes('/register'))) {
+            return originalFetch.apply(this, args);
+        }
+        const options = args[1] || {};
+        options.headers = options.headers || {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+        args[1] = options;
+        return originalFetch.apply(this, args);
+    };
+
+    // ================================================================
+    // 2. 用户信息 & 退出
+    // ================================================================
+    document.getElementById('currentUser').textContent =
+        localStorage.getItem('realName') || localStorage.getItem('username') || '用户';
+
     document.getElementById('logoutBtn').addEventListener('click', function(e) {
         e.preventDefault();
         localStorage.clear();
         window.location.href = '/login';
     });
+
+    // ================================================================
+    // 3. 全局变量
+    // ================================================================
+    let currentPage = 1;
+    const pageSize = 10;
+    let totalPages = 1;
+    let allDepartments = [];
+
+    // ================================================================
+    // 4. 加载部门列表（用于筛选和上传下拉）
+    // ================================================================
+    async function loadDepartments() {
+        try {
+            const resp = await fetch('/api/departments/tree');
+            const data = await resp.json();
+            if (data.success) {
+                allDepartments = flattenTree(data.data || []);
+                populateDepartmentSelects(allDepartments);
+            } else {
+                console.warn('加载部门列表失败:', data.message);
+            }
+        } catch (err) {
+            console.warn('加载部门列表异常:', err);
+        }
+    }
+
+    function flattenTree(tree) {
+        let result = [];
+        tree.forEach(node => {
+            result.push({ id: node.id, deptName: node.deptName });
+            if (node.children) {
+                result = result.concat(flattenTree(node.children));
+            }
+        });
+        return result;
+    }
+
+    function populateDepartmentSelects(departments) {
+        // 筛选下拉
+        const filterSelect = document.getElementById('deptFilter');
+        let filterHtml = '<option value="">全部部门</option>';
+        departments.forEach(d => {
+            filterHtml += `<option value="${d.id}">${d.deptName}</option>`;
+        });
+        filterSelect.innerHTML = filterHtml;
+
+        // 文件上传模态框部门下拉
+        const fileDeptSelect = document.getElementById('fileDepartment');
+        let fileHtml = '<option value="">请选择</option>';
+        departments.forEach(d => {
+            fileHtml += `<option value="${d.id}">${d.deptName}</option>`;
+        });
+        fileDeptSelect.innerHTML = fileHtml;
+
+        // URL上传模态框部门下拉
+        const urlDeptSelect = document.getElementById('urlDepartment');
+        urlDeptSelect.innerHTML = fileHtml;
+    }
+
+    // ================================================================
+    // 5. 加载文档列表
+    // ================================================================
+    async function loadDocuments(page = 1) {
+        const keyword = document.getElementById('keyword').value.trim();
+        const deptId = document.getElementById('deptFilter').value;
+
+        const params = new URLSearchParams({
+            page: page,
+            size: pageSize
+        });
+        if (keyword) params.append('keyword', keyword);
+        if (deptId) params.append('departmentId', deptId);
+
+        try {
+            const resp = await fetch('/api/documents/list?' + params.toString());
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.message || '加载失败');
+
+            renderTable(data.data || []);
+            renderPagination(data.total || 0, data.page || 1, data.size || pageSize);
+            currentPage = data.page || 1;
+        } catch (err) {
+            console.error('加载文档列表失败:', err);
+            document.getElementById('docTableBody').innerHTML =
+                `<tr><td colspan="10" class="text-center text-danger py-3">❌ 加载失败：${err.message}</td></tr>`;
+        }
+    }
+
+    // ================================================================
+    // 6. 渲染表格
+    // ================================================================
+    function renderTable(docs) {
+        const tbody = document.getElementById('docTableBody');
+        if (!docs || docs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">📭 暂无文档</td></tr>`;
+            return;
+        }
+
+        const isAdmin = localStorage.getItem('username') === 'admin';
+        let html = '';
+        docs.forEach(d => {
+            const statusClass = d.status === 1 ? 'success' : (d.status === 0 ? 'pending' : 'failed');
+            const statusText = d.status === 1 ? '已处理' : (d.status === 0 ? '待处理' : '失败');
+            const visibleText = d.visibleText || '未知';
+            const canDelete = isAdmin || d.uploaderId == localStorage.getItem('userId');
+
+            html += `
+                <tr>
+                    <td>${d.id}</td>
+                    <td><span class="fw-medium">${d.title || '-'}</span></td>
+                    <td>${d.fileName || '-'}</td>
+                    <td>${d.uploaderName || '-'}</td>
+                    <td>${d.departmentName || '-'}</td>
+                    <td>${visibleText}</td>
+                    <td><span class="doc-status ${statusClass}">${statusText}</span></td>
+                    <td>${d.chunkCount || 0}</td>
+                    <td>${d.viewCount || 0}</td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-1">
+                            <a href="/api/documents/download/${d.id}" class="btn btn-sm btn-outline-primary action-btn" title="下载">
+                                <i class="bi bi-download"></i>
+                            </a>
+                            ${canDelete ? `<button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteDocument(${d.id})" title="删除">
+                                <i class="bi bi-trash3"></i>
+                            </button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+    }
+
+    // ================================================================
+    // 7. 渲染分页
+    // ================================================================
+    function renderPagination(total, page, size) {
+        totalPages = Math.ceil(total / size);
+        const ul = document.getElementById('pagination');
+        if (totalPages <= 1) {
+            ul.innerHTML = '';
+            return;
+        }
+
+        let html = '';
+        html += `<li class="page-item ${page <= 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${page - 1}">上一页</a>
+        </li>`;
+        const start = Math.max(1, page - 2);
+        const end = Math.min(totalPages, page + 2);
+        if (start > 1) {
+            html += `<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`;
+            if (start > 2) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
+        }
+        for (let i = start; i <= end; i++) {
+            html += `<li class="page-item ${i === page ? 'active' : ''}">
+                <a class="page-link" href="#" data-page="${i}">${i}</a>
+            </li>`;
+        }
+        if (end < totalPages) {
+            if (end < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
+            html += `<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`;
+        }
+        html += `<li class="page-item ${page >= totalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${page + 1}">下一页</a>
+        </li>`;
+        ul.innerHTML = html;
+
+        ul.querySelectorAll('a.page-link[data-page]').forEach(a => {
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                const p = parseInt(this.dataset.page);
+                if (p >= 1 && p <= totalPages) loadDocuments(p);
+            });
+        });
+    }
+
+    // ================================================================
+    // 8. 搜索 & 重置
+    // ================================================================
+    document.getElementById('searchBtn').addEventListener('click', () => loadDocuments(1));
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        document.getElementById('keyword').value = '';
+        document.getElementById('deptFilter').value = '';
+        loadDocuments(1);
+    });
+    document.getElementById('keyword').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') loadDocuments(1);
+    });
+
+    // ================================================================
+    // 9. 删除文档
+    // ================================================================
+    async function deleteDocument(id) {
+        const confirm = await Swal.fire({
+            title: '确认删除',
+            text: '删除后文档及其向量数据将被移除，不可恢复',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: '确认删除',
+            cancelButtonText: '取消',
+            confirmButtonColor: '#d33'
+        });
+        if (!confirm.isConfirmed) return;
+
+        try {
+            const resp = await fetch(`/api/documents/${id}`, { method: 'DELETE' });
+            const data = await resp.json();
+            if (data.success) {
+                Swal.fire('✅ 删除成功', '', 'success');
+                loadDocuments(currentPage);
+            } else {
+                Swal.fire('❌ 删除失败', data.message, 'error');
+            }
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        }
+    }
+    window.deleteDocument = deleteDocument; // 暴露到全局
+
+    // ================================================================
+    // 10. 上传文件模态框
+    // ================================================================
+    document.getElementById('uploadFileBtn').addEventListener('click', function() {
+        // 重置表单
+        document.getElementById('uploadFileForm').reset();
+        document.getElementById('fileUploadProgress').innerHTML = '';
+        const modal = new bootstrap.Modal(document.getElementById('uploadFileModal'));
+        modal.show();
+    });
+
+    document.getElementById('submitFileBtn').addEventListener('click', async function() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        if (!file) {
+            Swal.fire('请选择文件', '', 'warning');
+            return;
+        }
+
+        const title = document.getElementById('fileTitle').value.trim();
+        const departmentId = document.getElementById('fileDepartment').value;
+        if (!departmentId) {
+            Swal.fire('请选择归属部门', '', 'warning');
+            return;
+        }
+
+        const visibleType = parseInt(document.getElementById('fileVisibleType').value);
+        const isPublic = document.getElementById('fileIsPublic').value === 'true';
+
+        const formData = new FormData();
+        formData.append('file', file);
+        if (title) formData.append('title', title);
+        formData.append('departmentId', departmentId);
+        formData.append('visibleType', visibleType);
+        formData.append('isPublic', isPublic);
+
+        this.disabled = true;
+        document.getElementById('fileUploadProgress').innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">上传中...</span></div>';
+
+        try {
+            const resp = await fetch('/api/documents/upload/metadata', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+            if (data.success) {
+                Swal.fire('✅ 上传成功', `文档已上传，共 ${data.data?.chunkCount || 0} 个片段`, 'success');
+                bootstrap.Modal.getInstance(document.getElementById('uploadFileModal')).hide();
+                loadDocuments(currentPage);
+            } else {
+                Swal.fire('❌ 上传失败', data.message, 'error');
+            }
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        } finally {
+            this.disabled = false;
+            document.getElementById('fileUploadProgress').innerHTML = '';
+        }
+    });
+
+    // ================================================================
+    // 11. 从URL上传模态框
+    // ================================================================
+    document.getElementById('uploadUrlBtn').addEventListener('click', function() {
+        document.getElementById('uploadUrlForm').reset();
+        document.getElementById('urlUploadProgress').innerHTML = '';
+        const modal = new bootstrap.Modal(document.getElementById('uploadUrlModal'));
+        modal.show();
+    });
+
+    document.getElementById('submitUrlBtn').addEventListener('click', async function() {
+        const url = document.getElementById('urlInput').value.trim();
+        const title = document.getElementById('urlTitle').value.trim();
+        const departmentId = document.getElementById('urlDepartment').value;
+        if (!url) {
+            Swal.fire('请输入文件URL', '', 'warning');
+            return;
+        }
+        if (!departmentId) {
+            Swal.fire('请选择归属部门', '', 'warning');
+            return;
+        }
+
+        const visibleType = parseInt(document.getElementById('urlVisibleType').value);
+        const isPublic = document.getElementById('urlIsPublic').value === 'true';
+
+        const payload = {
+            url,
+            title: title || undefined,
+            departmentId: parseInt(departmentId),
+            visibleType,
+            isPublic
+        };
+
+        this.disabled = true;
+        document.getElementById('urlUploadProgress').innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">上传中...</span></div>';
+
+        try {
+            const resp = await fetch('/api/documents/upload/url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                Swal.fire('✅ 上传成功', `文档已从URL上传，共 ${data.data?.chunkCount || 0} 个片段`, 'success');
+                bootstrap.Modal.getInstance(document.getElementById('uploadUrlModal')).hide();
+                loadDocuments(currentPage);
+            } else {
+                Swal.fire('❌ 上传失败', data.message, 'error');
+            }
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        } finally {
+            this.disabled = false;
+            document.getElementById('urlUploadProgress').innerHTML = '';
+        }
+    });
+
+    // ================================================================
+    // 12. 初始化
+    // ================================================================
+    async function init() {
+        await loadDepartments();
+        await loadDocuments(1);
+    }
+
+    init();
 </script>
 </body>
 </html>

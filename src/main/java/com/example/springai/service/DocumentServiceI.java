@@ -1,5 +1,9 @@
 package com.example.springai.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.springai.dto.DocumentListDTO;
+import com.example.springai.dto.DocumentUploadDTO;
+import com.example.springai.entity.KbDocument;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -22,4 +26,13 @@ public interface DocumentServiceI {
      * @throws IOException 文件读取或解析异常
      */
     int processDocument(MultipartFile file) throws IOException;
+
+    KbDocument uploadDocument(MultipartFile file, DocumentUploadDTO metadata, Long currentUserId) throws IOException;
+    KbDocument uploadFromUrl(String url, DocumentUploadDTO metadata, Long currentUserId) throws IOException;
+    Page<DocumentListDTO> listDocuments(int page, int size, String keyword, Long departmentId, Long currentUserId);
+    void deleteDocument(Long docId, Long currentUserId);
+    org.springframework.core.io.Resource downloadDocument(Long docId, Long currentUserId);
+    KbDocument getDocumentById(Long id);
+
+    int processDocument(MultipartFile file, Long documentId) throws IOException;
 }
