@@ -118,6 +118,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
     }
 
     // ==================== 核心处理方法（支持 documentId） ====================
+
     /**
      * 原有 processDocument，兼容旧调用
      */
@@ -210,7 +211,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
         documentMapper.insert(doc);  // 此时 doc.getId() 已赋值
 
         // 4. 处理向量化（传入文档ID）
-        int chunkCount = processDocument(file, doc.getId());
+        int chunkCount = processDocument(file, doc.getId(), doc);
         doc.setChunkCount(chunkCount);
         doc.setStatus(1);
         documentMapper.updateById(doc);
@@ -264,7 +265,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
         documentMapper.insert(doc);
 
         // 向量化
-        int chunkCount = processDocument(multipartFile, doc.getId());
+        int chunkCount = processDocument(multipartFile, doc.getId(), doc);
         doc.setChunkCount(chunkCount);
         doc.setStatus(1);
         documentMapper.updateById(doc);
@@ -314,10 +315,17 @@ public class DocumentServiceImpl implements DocumentServiceI {
             // 可见性文本
             String visibleText;
             switch (doc.getVisibleType()) {
-                case 1: visibleText = "本部门"; break;
-                case 2: visibleText = "全公司"; break;
-                case 3: visibleText = "指定部门"; break;
-                default: visibleText = "未知";
+                case 1:
+                    visibleText = "本部门";
+                    break;
+                case 2:
+                    visibleText = "全公司";
+                    break;
+                case 3:
+                    visibleText = "指定部门";
+                    break;
+                default:
+                    visibleText = "未知";
             }
             dto.setVisibleText(visibleText);
             return dto;
@@ -480,7 +488,8 @@ public class DocumentServiceImpl implements DocumentServiceI {
             String path = URI.create(url).getPath();
             String name = path.substring(path.lastIndexOf("/") + 1);
             if (StringUtils.hasText(name)) return name;
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return "downloaded_file";
     }
 
@@ -646,9 +655,17 @@ public class DocumentServiceImpl implements DocumentServiceI {
             this.fileSize = fileSize;
         }
 
-        public String getFileName() { return fileName; }
-        public InputStream getInputStream() { return inputStream; }
-        public long getFileSize() { return fileSize; }
+        public String getFileName() {
+            return fileName;
+        }
+
+        public InputStream getInputStream() {
+            return inputStream;
+        }
+
+        public long getFileSize() {
+            return fileSize;
+        }
     }
 
     private static class ByteArrayMultipartFile implements MultipartFile {
@@ -662,15 +679,113 @@ public class DocumentServiceImpl implements DocumentServiceI {
             this.originalFilename = originalFilename;
         }
 
-        @Override public String getName() { return name; }
-        @Override public String getOriginalFilename() { return originalFilename; }
-        @Override public String getContentType() { return null; }
-        @Override public boolean isEmpty() { return content == null || content.length == 0; }
-        @Override public long getSize() { return content.length; }
-        @Override public byte[] getBytes() throws IOException { return content; }
-        @Override public InputStream getInputStream() throws IOException { return new ByteArrayInputStream(content); }
-        @Override public void transferTo(File dest) throws IOException, IllegalStateException {
+        @Override
+        public String getName() {
+            return name;
+        }
+
+        @Override
+        public String getOriginalFilename() {
+            return originalFilename;
+        }
+
+        @Override
+        public String getContentType() {
+            return null;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return content == null || content.length == 0;
+        }
+
+        @Override
+        public long getSize() {
+            return content.length;
+        }
+
+        @Override
+        public byte[] getBytes() throws IOException {
+            return content;
+        }
+
+        @Override
+        public InputStream getInputStream() throws IOException {
+            return new ByteArrayInputStream(content);
+        }
+
+        @Override
+        public void transferTo(File dest) throws IOException, IllegalStateException {
             Files.write(dest.toPath(), content);
         }
     }
+
+    private List<Document> buildDocuments(List<String> chunks, String fileName, Long documentId, KbDocument doc) {
+        List<Document> documents = new ArrayList<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("source", fileName != null ? fileName : "unknown");
+            metadata.put("chunk_index", i);
+            metadata.put("total_chunks", chunks.size());
+            metadata.put("document_id", documentId != null ? documentId : 0);
+            // 关键：存入部门ID
+            if (doc.getDepartmentId() != null) {
+                metadata.put("department_id", doc.getDepartmentId().toString());
+            }
+            // 存入是否公开
+            metadata.put("is_public", doc.getIsPublic() != null ? doc.getIsPublic().toString() : "0");
+            documents.add(new Document(chunks.get(i), metadata));
+        }
+        return documents;
+    }
+
+    public int processDocument(MultipartFile file, Long documentId, KbDocument doc) throws IOException {
+        String fileName = file.getOriginalFilename();
+        log.info("📄 开始处理文档: {}, documentId: {}", fileName, documentId);
+        long startTime = System.currentTimeMillis();
+
+        String fullText = extractText(file);
+        if (fullText == null || fullText.trim().isEmpty()) {
+            throw new IOException("文档内容为空或无法提取文本");
+        }
+
+        List<String> chunks = splitIntoChunks(fullText, CHUNK_SIZE);
+        log.info("✂️ 文本切分完成，共 {} 个片段", chunks.size());
+
+        List<Document> documents = buildDocuments(chunks, fileName, documentId, doc);
+        log.info("📦 构建 Document 对象完成，共 {} 个", documents.size());
+
+        int total = documents.size();
+        if (total == 0) return 0;
+
+        List<List<Document>> batches = new ArrayList<>();
+        for (int i = 0; i < total; i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, total);
+            batches.add(documents.subList(i, end));
+        }
+        log.info("📦 分为 {} 批，每批 {} 个文档", batches.size(), BATCH_SIZE);
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (int i = 0; i < batches.size(); i++) {
+            final int batchIndex = i;
+            List<Document> batch = batches.get(i);
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                try {
+                    vectorStore.add(batch);
+                } catch (Exception e) {
+                    log.error("❌ 第 {}/{} 批处理失败: {}", batchIndex + 1, batches.size(), e.getMessage(), e);
+                    throw new RuntimeException(e);
+                }
+            }, executor);
+            futures.add(future);
+        }
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        long endTime = System.currentTimeMillis();
+        log.info("✅ 文档处理完成: {}，共 {} 个片段，耗时 {}ms", fileName, total, endTime - startTime);
+        return total;
+    }
+
+
+
 }

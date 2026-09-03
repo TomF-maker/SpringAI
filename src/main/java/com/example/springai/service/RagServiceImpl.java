@@ -1,16 +1,28 @@
 package com.example.springai.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.springai.entity.SysUser;
+import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.tool.ToolExecutor;
+import io.qdrant.client.QdrantClient;
+import io.qdrant.client.grpc.Common;
+import io.qdrant.client.grpc.JsonWithInt;
+import io.qdrant.client.grpc.Points;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import org.springframework.ai.vectorstore.filter.Filter;
 
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -29,6 +41,15 @@ public class RagServiceImpl implements RagServiceI {
     @Autowired
     private LocalKnowledgeServiceI localKnowledgeService;   // 注入本地知识库
 
+    @Autowired
+    private SysUserMapper userMapper;
+
+    @Autowired
+    private QdrantClient qdrantClient;
+    @Autowired
+    private EmbeddingModel embeddingModel;
+    @Value("${spring.ai.vectorstore.qdrant.collection-name:purchase_docs}")
+    private String collectionName;
     /**
      * 阻塞式 RAG 问答
      */
@@ -45,7 +66,8 @@ public class RagServiceImpl implements RagServiceI {
         }
 
         // 1. 检索相关文档片段
-        List<Document> relevantDocs = retrieveDocuments(question);
+        Long userId = getCurrentUserId();
+        List<Document> relevantDocs = retrieveDocuments(question, userId);
 
         if (relevantDocs.isEmpty()) {
             return "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。";
@@ -83,7 +105,8 @@ public class RagServiceImpl implements RagServiceI {
         }
 
         // 1. 检索相关文档片段（阻塞操作，但很快）
-        List<Document> relevantDocs = retrieveDocuments(question);
+        Long userId = getCurrentUserId();
+        List<Document> relevantDocs = retrieveDocuments(question, userId);
 
         if (relevantDocs.isEmpty()) {
             return Flux.just("抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。");
@@ -173,22 +196,136 @@ public class RagServiceImpl implements RagServiceI {
     /**
      * 检索相关文档片段（抽取为公共方法）
      */
-    private List<Document> retrieveDocuments(String question) {
-        log.debug("📚 正在检索相关文档...");
-        // topK = 3，减少上下文长度，提升速度
-        List<Document> relevantDocs = vectorStore.similaritySearch(SearchRequest.builder().query(question).build());
-        log.info("📚 检索到 {} 个相关文档片段", relevantDocs.size());
+//    private List<Document> retrieveDocuments(String question, Long userId) {
+//        SysUser user = userMapper.selectById(userId);
+//        if (user == null) {
+//            return Collections.emptyList();
+//        }
+//
+//        // 1. 先检索较多文档（例如 topK=10，保证召回率）
+//        List<Document> allDocs = vectorStore.similaritySearch(SearchRequest.builder()
+//                .query(question)
+//                .topK(10)
+//                .build());
+//
+//        if (allDocs.isEmpty()) {
+//            return Collections.emptyList();
+//        }
+//
+//        // 2. 内存过滤：根据用户权限过滤
+//        List<Document> filtered = allDocs.stream()
+//                .filter(doc -> hasPermission(doc, user))
+//                .limit(3)  // 取前3个符合权限的
+//                .collect(Collectors.toList());
+//
+//        log.info("📚 检索到 {} 个相关文档片段（已按权限过滤）", filtered.size());
+//        return filtered;
+//    }
 
-        if (!relevantDocs.isEmpty()) {
-            for (int i = 0; i < relevantDocs.size(); i++) {
-                Document doc = relevantDocs.get(i);
-                String content = doc.getFormattedContent();
-                String preview = content.length() > 100 ? content.substring(0, 100) + "..." : content;
-                log.info("片段 {}: {}\n相似度: {}", i + 1, preview, doc.getMetadata().get("similarity_score"));
-            }
+
+
+    private List<Document> retrieveDocuments(String question, Long userId) {
+        SysUser user = userMapper.selectById(userId);
+        if (user == null) {
+            return Collections.emptyList();
         }
 
-        return relevantDocs != null ? relevantDocs : List.of();
+        // 1. 构建 Qdrant Filter
+        Common.Filter filter = buildQdrantFilter(user);
+
+        // 2. 获取查询向量（float[]）
+        float[] queryVector = embeddingModel.embed(question);
+
+        // 3. 转换为 List<Float>
+        List<Float> vectorList = new ArrayList<>(queryVector.length);
+        for (float v : queryVector) {
+            vectorList.add(v);
+        }
+
+        // 4. 构建 SearchPoints 请求
+        Points.SearchPoints.Builder searchBuilder = Points.SearchPoints.newBuilder()
+                .setCollectionName(collectionName)
+                .setLimit(3)
+                .setWithPayload(Points.WithPayloadSelector.newBuilder().setEnable(true).build())
+                .addAllVector(vectorList);  // 使用 addAllVector 添加整个向量
+
+        if (filter != null) {
+            searchBuilder.setFilter(filter);
+        }
+
+        Points.SearchPoints searchRequest = searchBuilder.build();
+
+        try {
+            List<Points.ScoredPoint> scoredPoints = qdrantClient.searchAsync(searchRequest).get();
+
+            List<Document> documents = new ArrayList<>();
+
+            for (Points.ScoredPoint scoredPoint : scoredPoints) {
+                Map<String, Object> metadata = new HashMap<>();
+                String content = null;
+
+                // payload 使用 JsonWithInt.Value
+                Set<Map.Entry<String, JsonWithInt.Value>> entries = scoredPoint.getPayloadMap().entrySet();
+
+                for (Map.Entry<String, JsonWithInt.Value> entry : entries) {
+                    String key = entry.getKey();
+                    JsonWithInt.Value value = entry.getValue();
+
+                    if ("doc_content".equals(key)) {
+                        content = value.getStringValue();
+                    } else {
+                        if (value.hasStringValue()) {
+                            metadata.put(key, value.getStringValue());
+                        } else if (value.hasIntegerValue()) {
+                            metadata.put(key, value.getIntegerValue());
+                        } else if (value.hasDoubleValue()) {
+                            metadata.put(key, value.getDoubleValue());
+                        } else if (value.hasBoolValue()) {
+                            metadata.put(key, value.getBoolValue());
+                        } else if (value.hasNullValue()) {
+                            metadata.put(key, null);
+                        }
+                    }
+                }
+
+                if (content != null && !content.trim().isEmpty()) {
+                    Document doc = new Document(content, metadata);
+                    documents.add(doc);
+                }
+            }
+
+            log.info("📚 检索到 {} 个相关文档片段（已按权限过滤）", documents.size());
+            return documents;
+        } catch (Exception e) {
+            log.error("检索失败", e);
+            return Collections.emptyList();
+        }
+    }
+
+    // 权限判断方法
+    private boolean hasPermission(Document doc, SysUser user) {
+        // 管理员：查看所有
+        if (user.getIsAdmin() == 1) {
+            return true;
+        }
+
+        // 外部用户：仅公开文档
+        if (user.getUserType() != null && user.getUserType() == 2) {
+            String isPublic = doc.getMetadata().getOrDefault("is_public", "0").toString();
+            return "1".equals(isPublic);
+        }
+
+        // 内部用户：本部门文档 + 公开文档
+        Long departmentId = user.getDepartmentId();
+        if (departmentId != null && departmentId > 0) {
+            String docDept = doc.getMetadata().getOrDefault("department_id", "").toString();
+            String isPublic = doc.getMetadata().getOrDefault("is_public", "0").toString();
+            return docDept.equals(departmentId.toString()) || "1".equals(isPublic);
+        } else {
+            // 用户无部门，仅公开文档
+            String isPublic = doc.getMetadata().getOrDefault("is_public", "0").toString();
+            return "1".equals(isPublic);
+        }
     }
 
     /**
@@ -215,5 +352,117 @@ public class RagServiceImpl implements RagServiceI {
                 3. 回答要简洁、准确，并用中文
                 4. 引用文档中的原文时，请用引号标注
                 """.formatted(context, question);
+    }
+
+
+
+    private Long getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new RuntimeException("用户未登录");
+        }
+        String username = authentication.getName();
+        SysUser user = userMapper.selectOne(
+                new QueryWrapper<SysUser>().eq("username", username).or().eq("email", username)
+        );
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        return user.getId();
+    }
+
+    /**
+     * 根据用户权限构建 Spring AI Filter 表达式
+     * @param user 当前用户
+     * @return 过滤表达式字符串，null 表示无过滤（管理员）
+     */
+    private String buildFilterExpression(SysUser user) {
+        // 管理员：查看所有文档（无过滤）
+        if (user.getIsAdmin() == 1) {
+            return null;
+        }
+
+        // 外部用户：只能查看公开文档
+        if (user.getUserType() != null && user.getUserType() == 2) {
+            return "is_public == '1'";
+        }
+
+        // 内部用户：本部门文档 + 公开文档
+        Long departmentId = user.getDepartmentId();
+        if (departmentId != null && departmentId > 0) {
+            // OR 条件：department_id == 用户部门 OR is_public == 1
+            return "department_id == '" + departmentId.toString() + "' or is_public == '1'";
+        } else {
+            // 用户没有部门，仅公开文档
+            return "is_public == '1'";
+        }
+    }
+
+    private Common.Filter buildQdrantFilter(SysUser user) {
+        // 管理员：无过滤
+        if (user.getIsAdmin() == 1) {
+            return null;
+        }
+
+        Common.Filter.Builder filterBuilder = Common.Filter.newBuilder();
+
+        // 外部用户：仅公开文档
+        if (user.getUserType() != null && user.getUserType() == 2) {
+            Common.FieldCondition fieldCondition = Common.FieldCondition.newBuilder()
+                    .setKey("is_public")
+                    .setMatch(Common.Match.newBuilder()
+                            .setKeyword("1")
+                            .build())
+                    .build();
+            Common.Condition condition = Common.Condition.newBuilder()
+                    .setField(fieldCondition)
+                    .build();
+            return filterBuilder.addMust(condition).build();
+        }
+
+        // 内部用户：本部门文档 + 公开文档
+        Long departmentId = user.getDepartmentId();
+        if (departmentId != null && departmentId > 0) {
+            // OR 条件
+            // 条件1: department_id == 用户部门
+            Common.FieldCondition deptField = Common.FieldCondition.newBuilder()
+                    .setKey("department_id")
+                    .setMatch(Common.Match.newBuilder()
+                            .setKeyword(departmentId.toString())
+                            .build())
+                    .build();
+            Common.Condition deptCondition = Common.Condition.newBuilder()
+                    .setField(deptField)
+                    .build();
+
+            // 条件2: is_public == 1
+            Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
+                    .setKey("is_public")
+                    .setMatch(Common.Match.newBuilder()
+                            .setKeyword("1")
+                            .build())
+                    .build();
+            Common.Condition pubCondition = Common.Condition.newBuilder()
+                    .setField(pubField)
+                    .build();
+
+            // 构建 OR: should 至少一个匹配
+            return Common.Filter.newBuilder()
+                    .addShould(deptCondition)
+                    .addShould(pubCondition)
+                    .build();
+        } else {
+            // 用户无部门，仅公开文档
+            Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
+                    .setKey("is_public")
+                    .setMatch(Common.Match.newBuilder()
+                            .setKeyword("1")
+                            .build())
+                    .build();
+            Common.Condition pubCondition = Common.Condition.newBuilder()
+                    .setField(pubField)
+                    .build();
+            return Common.Filter.newBuilder().addMust(pubCondition).build();
+        }
     }
 }

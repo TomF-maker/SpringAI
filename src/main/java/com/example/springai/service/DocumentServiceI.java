@@ -35,4 +35,6 @@ public interface DocumentServiceI {
     KbDocument getDocumentById(Long id);
 
     int processDocument(MultipartFile file, Long documentId) throws IOException;
+
+    int processDocument(MultipartFile file, Long documentId, KbDocument doc) throws IOException;
 }
