@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据看板 - 采购智能助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 20px 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .sidebar-brand { padding: 0 20px 20px; font-size: 20px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .sidebar-brand i { margin-right: 10px; }
+        .sidebar .nav-link { color: rgba(255,255,255,0.7); padding: 10px 20px; border-radius: 0; transition: all 0.2s; }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); }
+        .sidebar .nav-link i { margin-right: 10px; }
+        .main-content { margin-left: 220px; flex: 1; padding: 20px; min-height: 100vh; }
+        .topbar {
+            background: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .topbar .user-info { font-size: 14px; }
+        .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-4px); }
+        .stat-card .number { font-size: 32px; font-weight: 700; color: #1a73e8; }
+        .stat-card .label { font-size: 14px; color: #64748b; margin-top: 4px; }
+        .stat-card .icon { font-size: 28px; color: #1a73e8; opacity: 0.6; }
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            margin-top: 20px;
+        }
+        .chart-card .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+        .chart-container { height: 300px; }
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; }
+            .sidebar-brand span, .sidebar .nav-link span { display: none; }
+            .sidebar .nav-link { text-align: center; padding: 12px 0; }
+            .sidebar .nav-link i { margin-right: 0; font-size: 20px; }
+            .main-content { margin-left: 60px; padding: 12px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <!-- 侧边栏 -->
+    <div class="sidebar">
+        <div class="sidebar-brand"><i class="bi bi-cart3"></i> <span>采购助手</span></div>
+        <ul class="nav flex-column">
+            <li class="nav-item"><a class="nav-link active" href="/dashboard"><i class="bi bi-graph-up"></i> <span>数据看板</span></a></li>
+            <li class="nav-item"><a class="nav-link" href="/chat"><i class="bi bi-chat-dots"></i> <span>智能问答</span></a></li>
+            <li class="nav-item"><a class="nav-link" href="/documents"><i class="bi bi-file-earmark-text"></i> <span>文档管理</span></a></li>
+            <li class="nav-item"><a class="nav-link" href="/users"><i class="bi bi-people"></i> <span>用户管理</span></a></li>
+            <li class="nav-item"><a class="nav-link" href="/departments"><i class="bi bi-diagram-3"></i> <span>部门管理</span></a></li>
+            <li class="nav-item"><a class="nav-link" href="/profile"><i class="bi bi-person"></i> <span>个人中心</span></a></li>
+        </ul>
+    </div>
+
+    <!-- 主内容 -->
+    <div class="main-content">
+        <div class="topbar">
+            <div><span id="pageTitle">📊 数据看板</span></div>
+            <div class="user-info">
+                <i class="bi bi-person-circle"></i>
+                <span id="currentUser">用户</span>
+                <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
+            </div>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="row g-3" id="statCards">
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-file-earmark-text"></i></div>
+                    <div class="number" id="totalDocs">-</div>
+                    <div class="label">文档总数</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-people"></i></div>
+                    <div class="number" id="totalUsers">-</div>
+                    <div class="label">用户总数</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-diagram-3"></i></div>
+                    <div class="number" id="totalDepts">-</div>
+                    <div class="label">部门总数</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-check-circle"></i></div>
+                    <div class="number" id="processedDocs">-</div>
+                    <div class="label">已处理文档</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图表 -->
+        <div class="row g-3">
+            <div class="col-lg-8">
+                <div class="chart-card">
+                    <div class="chart-title">📈 近7天上传统计</div>
+                    <div class="chart-container" id="trendChart"></div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="chart-card">
+                    <div class="chart-title">📂 文档类型分布</div>
+                    <div class="chart-container" id="pieChart"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+    // ================================================================
+    // 认证 & 全局拦截
+    // ================================================================
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = '/login';
+    if (localStorage.getItem('username') !== 'admin') {
+        alert('⚠️ 仅管理员可访问数据看板');
+        window.location.href = '/chat';
+    }
+
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const url = args[0];
+        if (typeof url === 'string' && url.includes('/api/auth/')) {
+            return originalFetch.apply(this, args);
+        }
+        const options = args[1] || {};
+        options.headers = options.headers || {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+        args[1] = options;
+        return originalFetch.apply(this, args);
+    };
+
+    document.getElementById('currentUser').textContent = localStorage.getItem('realName') || localStorage.getItem('username');
+
+    document.getElementById('logoutBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        localStorage.clear();
+        window.location.href = '/login';
+    });
+
+    // ================================================================
+    // 加载统计数据
+    // ================================================================
+    async function loadStatistics() {
+        try {
+            const resp = await fetch('/api/dashboard/statistics');
+            if (!resp.ok) throw new Error('加载失败');
+            const data = await resp.json();
+
+            // 更新卡片
+            document.getElementById('totalDocs').textContent = data.totalDocuments || 0;
+            document.getElementById('totalUsers').textContent = data.totalUsers || 0;
+            document.getElementById('totalDepts').textContent = data.totalDepartments || 0;
+            document.getElementById('processedDocs').textContent = data.processedDocuments || 0;
+
+            // 渲染趋势图
+            renderTrendChart(data.dailyUploads || []);
+            // 渲染饼图
+            renderPieChart(data.fileTypeDistribution || {});
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // ================================================================
+    // ECharts 图表
+    // ================================================================
+    function renderTrendChart(dailyData) {
+        const chart = echarts.init(document.getElementById('trendChart'));
+        const dates = dailyData.map(item => item.date);
+        const counts = dailyData.map(item => item.count);
+
+        const option = {
+            tooltip: {
+                trigger: 'axis',
+                formatter: function(params) {
+                    const p = params[0];
+                    return `${p.name}<br/>上传文档：<strong>${p.value}</strong> 个`;
+                }
+            },
+            grid: { left: '3%', right: '4%', bottom: '3%', top: '10%', containLabel: true },
+            xAxis: {
+                type: 'category',
+                data: dates,
+                boundaryGap: false,
+                axisLine: { lineStyle: { color: '#e2e8f0' } }
+            },
+            yAxis: {
+                type: 'value',
+                minInterval: 1,
+                splitLine: { lineStyle: { color: '#f1f3f5' } }
+            },
+            series: [{
+                data: counts,
+                type: 'line',
+                smooth: true,
+                lineStyle: { color: '#1a73e8', width: 3 },
+                areaStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: 'rgba(26, 115, 232, 0.3)' },
+                        { offset: 1, color: 'rgba(26, 115, 232, 0.02)' }
+                    ])
+                },
+                symbol: 'circle',
+                symbolSize: 8,
+                itemStyle: { color: '#1a73e8' }
+            }]
+        };
+        chart.setOption(option);
+        window.addEventListener('resize', () => chart.resize());
+    }
+
+    function renderPieChart(typeData) {
+        const chart = echarts.init(document.getElementById('pieChart'));
+        const data = Object.keys(typeData).map(key => ({
+            name: key.toUpperCase(),
+            value: typeData[key]
+        }));
+
+        const option = {
+            tooltip: {
+                trigger: 'item',
+                formatter: '{b}: {c} ({d}%)'
+            },
+            legend: {
+                orient: 'vertical',
+                right: '5%',
+                top: 'center',
+                itemWidth: 12,
+                itemHeight: 12,
+                textStyle: { fontSize: 12 }
+            },
+            series: [{
+                type: 'pie',
+                radius: ['40%', '70%'],
+                avoidLabelOverlap: false,
+                itemStyle: {
+                    borderRadius: 6,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                },
+                label: { show: false },
+                emphasis: {
+                    label: { show: true, fontSize: 14, fontWeight: 'bold' }
+                },
+                data: data.length ? data : [{ name: '暂无数据', value: 1 }],
+                color: ['#1a73e8', '#34a853', '#fbbc04', '#ea4335', '#9c27b0']
+            }]
+        };
+        chart.setOption(option);
+        window.addEventListener('resize', () => chart.resize());
+    }
+
+    // ================================================================
+    // 初始化
+    // ================================================================
+    loadStatistics();
+</script>
+</body>
+</html>

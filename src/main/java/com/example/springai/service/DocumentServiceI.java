@@ -3,6 +3,7 @@ package com.example.springai.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.springai.dto.DocumentListDTO;
 import com.example.springai.dto.DocumentUploadDTO;
+import com.example.springai.dto.StatisticsDTO;
 import com.example.springai.entity.KbDocument;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -37,4 +38,6 @@ public interface DocumentServiceI {
     int processDocument(MultipartFile file, Long documentId) throws IOException;
 
     int processDocument(MultipartFile file, Long documentId, KbDocument doc) throws IOException;
+
+    StatisticsDTO getStatistics();
 }

@@ -296,6 +296,9 @@
             <li class="nav-item">
                 <a class="nav-link" href="/profile"><i class="bi bi-person"></i> <span>个人中心</span></a>
             </li>
+            <li class="nav-item" id="dashboardNav" style="display:none;">
+                <a class="nav-link" href="/dashboard"><i class="bi bi-graph-up"></i> <span>数据看板</span></a>
+            </li>
         </ul>
     </div>
 
@@ -359,7 +362,11 @@
     if (!token) {
         window.location.href = '/login';
     }
-
+    // 显示管理员专属菜单
+    if (localStorage.getItem('username') === 'admin') {
+        const nav = document.getElementById('dashboardNav');
+        if (nav) nav.style.display = 'block';
+    }
     // 为 fetch 请求自动添加 Authorization 头（排除 auth 相关接口）
     const originalFetch = window.fetch;
     window.fetch = function(...args) {

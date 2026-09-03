@@ -77,6 +77,9 @@
             <li class="nav-item"><a class="nav-link" href="/users"><i class="bi bi-people"></i> <span>用户管理</span></a></li>
             <li class="nav-item"><a class="nav-link" href="/departments"><i class="bi bi-diagram-3"></i> <span>部门管理</span></a></li>
             <li class="nav-item"><a class="nav-link" href="/profile"><i class="bi bi-person"></i> <span>个人中心</span></a></li>
+            <li class="nav-item" id="dashboardNav" style="display:none;">
+                <a class="nav-link" href="/dashboard"><i class="bi bi-graph-up"></i> <span>数据看板</span></a>
+            </li>
         </ul>
     </div>
 
@@ -245,7 +248,11 @@
     // ================================================================
     const token = localStorage.getItem('token');
     if (!token) window.location.href = '/login';
-
+    // 显示管理员专属菜单
+    if (localStorage.getItem('username') === 'admin') {
+        const nav = document.getElementById('dashboardNav');
+        if (nav) nav.style.display = 'block';
+    }
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const url = args[0];

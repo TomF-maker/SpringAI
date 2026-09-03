@@ -2,8 +2,10 @@ package com.example.springai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.springai.dto.DailyUpload;
 import com.example.springai.dto.DocumentListDTO;
 import com.example.springai.dto.DocumentUploadDTO;
+import com.example.springai.dto.StatisticsDTO;
 import com.example.springai.entity.KbDocument;
 import com.example.springai.entity.KbDocumentLog;
 import com.example.springai.entity.SysDepartment;
@@ -864,5 +866,48 @@ public class DocumentServiceImpl implements DocumentServiceI {
             }
         }
         return null;
+    }
+
+    @Override
+    public StatisticsDTO getStatistics() {
+        StatisticsDTO dto = new StatisticsDTO();
+
+        // 文档总数
+        dto.setTotalDocuments(documentMapper.selectCount(null));
+
+        // 用户总数
+        dto.setTotalUsers(userMapper.selectCount(null));
+
+        // 部门总数
+        dto.setTotalDepartments(departmentMapper.selectCount(null));
+
+        // 近7天上传统计（按日期分组）
+        List<Map<String, Object>> dailyList = documentMapper.selectDailyUploads(7);
+        List<DailyUpload> dailyUploads = dailyList.stream()
+                .map(row -> new DailyUpload(
+                        row.get("date").toString(),
+                        ((Number) row.get("count")).longValue()
+                ))
+                .collect(Collectors.toList());
+        dto.setDailyUploads(dailyUploads);
+
+        // 文件类型分布
+        List<Map<String, Object>> typeList = documentMapper.selectFileTypeDistribution();
+        Map<String, Long> typeMap = typeList.stream()
+                .collect(Collectors.toMap(
+                        row -> row.get("file_type").toString(),
+                        row -> ((Number) row.get("count")).longValue()
+                ));
+        dto.setFileTypeDistribution(typeMap);
+
+        // 公开/内部
+        dto.setPublicDocuments(documentMapper.selectCount(new QueryWrapper<KbDocument>().eq("is_public", 1)));
+        dto.setInternalDocuments(documentMapper.selectCount(new QueryWrapper<KbDocument>().eq("is_public", 0)));
+
+        // 处理状态
+        dto.setProcessedDocuments(documentMapper.selectCount(new QueryWrapper<KbDocument>().eq("status", 1)));
+        dto.setPendingDocuments(documentMapper.selectCount(new QueryWrapper<KbDocument>().eq("status", 0)));
+
+        return dto;
     }
 }
