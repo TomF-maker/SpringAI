@@ -17,7 +17,6 @@
             background: #f5f7fa;
             min-height: 100vh;
         }
-        /* 侧边栏 */
         .wrapper { display: flex; min-height: 100vh; }
         .sidebar {
             width: 220px;
@@ -55,7 +54,6 @@
             padding: 20px;
             min-height: 100vh;
         }
-        /* 顶部栏 */
         .topbar {
             background: white;
             padding: 12px 24px;
@@ -69,7 +67,6 @@
         .topbar .user-info { font-size: 14px; }
         .topbar .user-info i { margin-right: 6px; }
         .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
-        /* 聊天容器（原风格） */
         .chat-container {
             width: 100%;
             max-width: 100%;
@@ -190,68 +187,6 @@
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        /* 上传区域 */
-        .upload-area {
-            padding: 12px 24px;
-            border-top: 1px solid #e2e8f0;
-            background: #fafbfc;
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-shrink: 0;
-            flex-wrap: wrap;
-        }
-        .upload-area input[type="file"] { display: none; }
-        .upload-area .file-label {
-            padding: 6px 16px;
-            background: #e8edf4;
-            border-radius: 20px;
-            font-size: 13px;
-            color: #1a73e8;
-            cursor: pointer;
-        }
-        .upload-area .file-label:hover { background: #d5dde8; }
-        .upload-area .file-status {
-            font-size: 13px;
-            color: #64748b;
-            flex: 1;
-            min-width: 80px;
-        }
-        .upload-area .upload-btn {
-            padding: 6px 20px;
-            background: #34a853;
-            color: white;
-            border: none;
-            border-radius: 20px;
-            font-size: 13px;
-            cursor: pointer;
-        }
-        .upload-area .upload-btn:hover { background: #2d8f47; }
-        .upload-area .upload-btn:disabled { background: #94a3b8; }
-        .upload-progress {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            color: #1a73e8;
-            flex: 1;
-            min-width: 150px;
-        }
-        .upload-progress .progress-bar {
-            flex: 1;
-            height: 6px;
-            background: #e0e7ef;
-            border-radius: 3px;
-            overflow: hidden;
-            min-width: 60px;
-        }
-        .upload-progress .progress-bar .fill {
-            height: 100%;
-            background: #1a73e8;
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        .upload-progress .progress-text { white-space: nowrap; font-size: 12px; }
         @media (max-width: 768px) {
             .sidebar { width: 60px; }
             .sidebar-brand span, .sidebar .nav-link span { display: none; }
@@ -261,22 +196,12 @@
             .chat-container { height: calc(100vh - 120px); }
             .topbar { padding: 8px 16px; }
         }
-        /* 工具调用标签 */
-        .tool-tag {
-            display: inline-block;
-            font-size: 11px;
-            background: #e8edf4;
-            padding: 0 8px;
-            border-radius: 10px;
-            color: #1a73e8;
-            margin-right: 6px;
-        }
     </style>
 </head>
 <body>
 <div class="wrapper">
     <!-- 侧边栏 -->
-    <div class="sidebar" id="sidebar">
+    <div class="sidebar">
         <div class="sidebar-brand">
             <i class="bi bi-cart3"></i> <span>采购助手</span>
         </div>
@@ -333,7 +258,6 @@
                     <span>🤖 正在思考...</span>
                 </div>
             </div>
-
 
             <div class="chat-input-area">
                 <input type="text" id="messageInput" placeholder="输入您的问题..." />
@@ -398,12 +322,6 @@
     const sendBtn = document.getElementById('sendBtn');
     const typingIndicator = document.getElementById('typingIndicator');
 
-    const fileInput = document.getElementById('fileInput');
-    const fileStatus = document.getElementById('fileStatus');
-    const uploadBtn = document.getElementById('uploadBtn');
-    const progressText = document.getElementById('progressText');
-    const progressFill = document.getElementById('progressFill');
-
     let isProcessing = false;
     let currentAbortController = null;
 
@@ -455,75 +373,6 @@
         scrollToBottom();
         return contentDiv;
     }
-
-    // ================================================================
-    // 文件上传
-    // ================================================================
-    fileInput.addEventListener('change', function() {
-        if (this.files && this.files.length > 0) {
-            fileStatus.textContent = `已选择: ${this.files[0].name} (${(this.files[0].size / 1024).toFixed(1)} KB)`;
-        } else {
-            fileStatus.textContent = '未选择文件';
-        }
-    });
-
-    uploadBtn.addEventListener('click', async function() {
-        const file = fileInput.files[0];
-        if (!file) {
-            alert('请先选择PDF或Word文件');
-            return;
-        }
-        const name = file.name.toLowerCase();
-        if (!(name.endsWith('.pdf') || name.endsWith('.doc') || name.endsWith('.docx'))) {
-            alert('仅支持 PDF、DOC、DOCX 格式');
-            return;
-        }
-
-        this.disabled = true;
-        progressText.textContent = '⏳ 上传中...';
-        progressFill.style.width = '0%';
-
-        let progress = 0;
-        const interval = setInterval(() => {
-            progress += Math.random() * 8 + 2;
-            if (progress > 95) progress = 95;
-            progressFill.style.width = progress + '%';
-        }, 150);
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        try {
-            const response = await fetch('/api/documents/upload', {
-                method: 'POST',
-                body: formData
-            });
-            clearInterval(interval);
-            const result = await response.json();
-
-            if (result.success) {
-                progressFill.style.width = '100%';
-                progressText.textContent = `✅ 成功 (${result.chunkCount} 片段)`;
-                fileStatus.textContent = `已上传: ${result.fileName}`;
-                addMessage('ai', `📚 文档《${result.fileName}》已上传并处理完成，共 ${result.chunkCount} 个文档片段已存入知识库。您现在可以基于这份文档提问了。`);
-            } else {
-                progressText.textContent = `❌ 失败: ${result.message}`;
-                addMessage('ai', `❌ 文档上传失败：${result.message}`);
-            }
-        } catch (error) {
-            clearInterval(interval);
-            console.error('Upload error:', error);
-            progressText.textContent = '❌ 网络错误，请重试';
-            addMessage('ai', `❌ 上传请求失败：${error.message}`);
-        } finally {
-            this.disabled = false;
-            fileInput.value = '';
-            setTimeout(() => {
-                progressText.textContent = '';
-                progressFill.style.width = '0%';
-            }, 5000);
-        }
-    });
 
     // ================================================================
     // 判断是否需要使用工具（阻塞式）
