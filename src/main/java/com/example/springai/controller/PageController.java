@@ -50,4 +50,9 @@ public class PageController {
     public String dashboard() {
         return "dashboard";
     }
+
+    @GetMapping("/history")
+    public String history() {
+        return "history";
+    }
 }

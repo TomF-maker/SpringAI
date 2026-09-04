@@ -1,12 +1,17 @@
 package com.example.springai.controller;
 
+import com.example.springai.entity.Conversation;
+import com.example.springai.entity.SysUser;
+import com.example.springai.service.ConversationServiceI;
 import com.example.springai.service.RagServiceI;
+import com.example.springai.service.UserServiceI;
 import com.example.springai.utils.JwtUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -31,13 +36,14 @@ public class RagController {
 
     @Autowired
     private UserDetailsService userDetailsService;
+    @Autowired
+    private ConversationServiceI conversationService;
+    @Autowired
+    private UserServiceI userServiceI;
 
     /**
      * 普通 RAG 问答（阻塞式）
      * 根据问题关键词自动选择工具模式或文档检索模式
-     *
-     * @param question 用户问题
-     * @return JSON 格式的回答
      */
     @GetMapping("/chat")
     public Map<String, Object> chat(@RequestParam String question) {
@@ -45,7 +51,6 @@ public class RagController {
         Map<String, Object> response = new HashMap<>();
         try {
             String answer;
-            // 如果问题包含天气或新闻关键词，使用工具模式
             if (question.contains("天气") || question.contains("新闻") || question.contains("热点")) {
                 answer = ragService.chatWithTool(question);
             } else {
@@ -65,24 +70,67 @@ public class RagController {
 
     /**
      * 流式 RAG 问答（支持流式输出）
-     *
-     * @param question 用户问题
-     * @return Server-Sent Events 流
+     * 新增功能：
+     *   - 当 conversationId 为空时自动创建新会话，并在流式响应的第一条消息中返回会话ID
+     *   - 前端可从中提取 conversationId 用于后续追加消息
      */
     @GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chatStream(@RequestParam String question,
+                                   @RequestParam(required = false) String conversationId,
+                                   Authentication authentication,
                                    HttpServletRequest request) {
+        // 1. Token 校验（沿用原有逻辑）
         String authHeader = request.getHeader("Authorization");
         try {
             validateToken(authHeader);
         } catch (RuntimeException e) {
+            // 若校验失败，返回错误信息并结束流
             return Flux.just("data: " + e.getMessage() + "\n\n", "data: [DONE]\n\n");
         }
-        // 校验通过，执行原有逻辑
+
         log.info("📨 收到流式RAG问答请求: {}", question);
-        return ragService.chatWithDocumentStream(question);
+
+        // 2. 处理会话ID
+        String finalConversationId;
+        if (conversationId == null || conversationId.isEmpty()) {
+            // 创建新会话
+            SysUser user = userServiceI.findByUsernameOrEmail(authentication.getName());
+            Conversation conv = conversationService.createConversation(user.getId(), question);
+            finalConversationId = conv.getId();
+            log.info("✅ 创建新会话，ID: {}", finalConversationId);
+        } else {
+            finalConversationId = conversationId;
+            log.info("🔁 使用已有会话，ID: {}", finalConversationId);
+        }
+
+        // 3. 保存用户消息
+        conversationService.addMessage(finalConversationId, "user", question);
+
+        // 4. 准备AI回答的收集器
+        StringBuilder aiAnswer = new StringBuilder();
+
+        // 5. 构建流式响应
+        //    先发送一个元数据消息（包含 conversationId），再发送实际的回答流
+        Flux<String> metaDataFlux = Flux.just(
+                "data: {\"type\":\"meta\",\"conversationId\":\"" + finalConversationId + "\"}\n\n"
+        );
+
+        Flux<String> aiStream = ragService.chatWithDocumentStream(question)
+                .doOnNext(chunk -> aiAnswer.append(chunk))
+                .doOnComplete(() -> {
+                    // 保存AI回答到会话
+                    conversationService.addMessage(finalConversationId, "assistant", aiAnswer.toString());
+                    log.info("✅ AI回答已保存，会话ID: {}", finalConversationId);
+                })
+                .doOnError(e -> log.error("流式问答失败", e));
+
+        // 合并两个流：先发送 meta，再发送 AI 流
+        return Flux.concat(metaDataFlux, aiStream);
     }
 
+    /**
+     * 校验 Token 并设置认证上下文
+     */
     private UserDetails validateToken(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             throw new RuntimeException("未提供Token");
@@ -98,7 +146,7 @@ public class RagController {
         if (!jwtUtils.validateToken(jwtToken, userDetails.getUsername())) {
             throw new RuntimeException("Token已过期或无效");
         }
-        // 可选：设置认证上下文
+        // 设置认证上下文（供后续使用）
         UsernamePasswordAuthenticationToken authToken =
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
         SecurityContextHolder.getContext().setAuthentication(authToken);

@@ -210,6 +210,9 @@
                 <a class="nav-link active" href="/chat"><i class="bi bi-chat-dots"></i> <span>智能问答</span></a>
             </li>
             <li class="nav-item">
+                <a class="nav-link" href="/history"><i class="bi bi-clock-history"></i> <span>历史记录</span></a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link" href="/documents"><i class="bi bi-file-earmark-text"></i> <span>文档管理</span></a>
             </li>
             <li class="nav-item" id="userMgmtNav" style="display:none;">
@@ -269,22 +272,17 @@
 
 <script>
     // ================================================================
-    // 认证拦截
+    // 1. 认证拦截器（最先执行）
     // ================================================================
     const token = localStorage.getItem('token');
     if (!token) {
         window.location.href = '/login';
     }
-    // 显示管理员专属菜单
-    if (localStorage.getItem('username') === 'admin') {
-        const nav = document.getElementById('dashboardNav');
-        if (nav) nav.style.display = 'block';
-    }
-    // 为 fetch 请求自动添加 Authorization 头（排除 auth 相关接口）
+
+    // 覆盖 fetch，为所有请求自动添加 Token
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const url = args[0];
-        // 如果是认证相关接口，不添加 Token
         if (typeof url === 'string' && (url.includes('/api/auth/') || url.includes('/login') || url.includes('/register'))) {
             return originalFetch.apply(this, args);
         }
@@ -296,37 +294,7 @@
     };
 
     // ================================================================
-    // 显示用户信息
-    // ================================================================
-    const username = localStorage.getItem('realName') || localStorage.getItem('username');
-    document.getElementById('currentUser').textContent = username;
-
-    // 根据角色显示管理菜单（简单判断：admin）
-    if (localStorage.getItem('username') === 'admin') {
-        document.getElementById('userMgmtNav').style.display = 'block';
-        document.getElementById('deptMgmtNav').style.display = 'block';
-    }
-
-    // 退出登录
-    document.getElementById('logoutBtn').addEventListener('click', function(e) {
-        e.preventDefault();
-        localStorage.clear();
-        window.location.href = '/login';
-    });
-
-    // ================================================================
-    // DOM 引用（聊天功能）
-    // ================================================================
-    const messagesContainer = document.getElementById('chatMessages');
-    const messageInput = document.getElementById('messageInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const typingIndicator = document.getElementById('typingIndicator');
-
-    let isProcessing = false;
-    let currentAbortController = null;
-
-    // ================================================================
-    // 工具函数
+    // 2. 工具函数（提前定义，供后续使用）
     // ================================================================
     function getCurrentTime() {
         return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -342,9 +310,11 @@
     }
 
     // ================================================================
-    // 消息操作
+    // 3. 消息操作（提前定义）
     // ================================================================
     function addMessage(role, content) {
+        const messagesContainer = document.getElementById('chatMessages');
+        const typingIndicator = document.getElementById('typingIndicator');
         const welcomeMsg = messagesContainer.querySelector('.message.ai:first-child');
         if (welcomeMsg && messagesContainer.children.length <= 2) {
             welcomeMsg.remove();
@@ -375,18 +345,84 @@
     }
 
     // ================================================================
-    // 判断是否需要使用工具（阻塞式）
+    // 4. DOM 引用（在函数定义后）
     // ================================================================
+    const messagesContainer = document.getElementById('chatMessages');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const typingIndicator = document.getElementById('typingIndicator');
+
+    // ================================================================
+    // 5. 会话管理（全局变量）
+    // ================================================================
+    const urlParams = new URLSearchParams(window.location.search);
+    let conversationId = urlParams.get('conversationId') || null;
+    console.log('📌 初始 conversationId:', conversationId);
+
+    // ================================================================
+    // 6. 加载历史消息（此时 addMessage 已定义）
+    // ================================================================
+    if (conversationId) {
+        loadHistoryMessages(conversationId);
+    }
+
+    async function loadHistoryMessages(id) {
+        try {
+            const resp = await fetch(`/api/conversations/${id}`);
+            if (!resp.ok) throw new Error('加载历史消息失败');
+            const conv = await resp.json();
+            if (conv && conv.messages) {
+                conv.messages.forEach(msg => {
+                    addMessage(msg.role === 'user' ? 'user' : 'ai', msg.content);
+                });
+            }
+        } catch (err) {
+            console.error('加载历史消息失败', err);
+        }
+    }
+
+    // ================================================================
+    // 7. 管理员菜单显示
+    // ================================================================
+    if (localStorage.getItem('username') === 'admin') {
+        const nav = document.getElementById('dashboardNav');
+        if (nav) nav.style.display = 'block';
+        const userNav = document.getElementById('userMgmtNav');
+        if (userNav) userNav.style.display = 'block';
+        const deptNav = document.getElementById('deptMgmtNav');
+        if (deptNav) deptNav.style.display = 'block';
+    }
+
+    // ================================================================
+    // 8. 显示用户信息
+    // ================================================================
+    const username = localStorage.getItem('realName') || localStorage.getItem('username');
+    document.getElementById('currentUser').textContent = username;
+
+    // ================================================================
+    // 9. 退出登录
+    // ================================================================
+    document.getElementById('logoutBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        localStorage.clear();
+        window.location.href = '/login';
+    });
+
+    // ================================================================
+    // 10. 聊天功能（发送消息等）
+    // ================================================================
+    let isProcessing = false;
+
     function shouldUseTool(message) {
         const keywords = ['天气', '新闻', '热点', '气温', '预报', 'AI', '人工智能'];
         return keywords.some(k => message.includes(k));
     }
 
-    // ================================================================
-    // 阻塞式发送（用于工具调用）
-    // ================================================================
     async function sendBlocking(message) {
-        const url = `/api/rag/chat?question=${encodeURIComponent(message)}`;
+        let url = `/api/rag/chat?question=${encodeURIComponent(message)}`;
+        if (conversationId) {
+            url += `&conversationId=${conversationId}`;
+        }
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -403,9 +439,15 @@
     }
 
     // ================================================================
-    // 流式发送（用于RAG文档问答）
+    // 核心：流式发送 + meta 消息解析
     // ================================================================
     async function sendStreaming(message) {
+        let url = `/api/rag/chat/stream?question=${encodeURIComponent(message)}`;
+        if (conversationId) {
+            url += `&conversationId=${conversationId}`;
+        }
+        console.log('📤 请求 URL:', url);
+
         const aiMessageDiv = document.createElement('div');
         aiMessageDiv.className = 'message ai';
         const roleTag = document.createElement('div');
@@ -425,7 +467,6 @@
         setTyping(true);
 
         try {
-            const url = `/api/rag/chat/stream?question=${encodeURIComponent(message)}`;
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -448,44 +489,81 @@
 
                 for (const line of lines) {
                     const trimmed = line.trim();
-                    if (trimmed.startsWith('data:')) {
-                        let data = trimmed.substring(5).trim();
-                        while (data.startsWith('data:')) {
-                            data = data.substring(5).trim();
-                        }
-                        if (data === '[DONE]') continue;
-                        if (data) {
-                            if (!hasReceivedData) {
-                                hasReceivedData = true;
-                                timeDiv.textContent = startTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                    if (!trimmed.startsWith('data:')) continue;
+
+                    let data = trimmed.substring(5).trim();
+                    // 处理重复 data: 前缀
+                    while (data.startsWith('data:')) {
+                        data = data.substring(5).trim();
+                    }
+                    if (data === '[DONE]') continue;
+
+                    // --- 核心：解析 meta 消息 ---
+                    if (data.startsWith('{')) {
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.type === 'meta' && parsed.conversationId) {
+                                // 保存 conversationId
+                                conversationId = parsed.conversationId;
+                                // 更新 URL 参数（刷新页面后保留）
+                                const newUrl = new URL(window.location);
+                                newUrl.searchParams.set('conversationId', conversationId);
+                                window.history.replaceState({}, '', newUrl);
+                                console.log('📌 获取到 conversationId:', conversationId);
+                                continue; // meta 消息不显示在聊天界面
                             }
-                            fullText += data;
-                            contentDiv.textContent = fullText;
-                            scrollToBottom();
+                        } catch (_) {
+                            // 不是有效的 JSON，当作普通文本处理
                         }
+                    }
+
+                    // --- 普通 AI 回答内容 ---
+                    if (data) {
+                        if (!hasReceivedData) {
+                            hasReceivedData = true;
+                            timeDiv.textContent = startTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                        }
+                        fullText += data;
+                        contentDiv.textContent = fullText;
+                        scrollToBottom();
                     }
                 }
             }
 
+            // 处理剩余的 buffer
             if (buffer.trim()) {
                 const lines = buffer.trim().split(/\r?\n/);
                 for (const line of lines) {
                     const trimmed = line.trim();
-                    if (trimmed.startsWith('data:')) {
-                        let data = trimmed.substring(5).trim();
-                        while (data.startsWith('data:')) {
-                            data = data.substring(5).trim();
-                        }
-                        if (data === '[DONE]') continue;
-                        if (data) {
-                            if (!hasReceivedData) {
-                                hasReceivedData = true;
-                                timeDiv.textContent = getCurrentTime();
+                    if (!trimmed.startsWith('data:')) continue;
+                    let data = trimmed.substring(5).trim();
+                    while (data.startsWith('data:')) {
+                        data = data.substring(5).trim();
+                    }
+                    if (data === '[DONE]') continue;
+
+                    if (data.startsWith('{')) {
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.type === 'meta' && parsed.conversationId) {
+                                conversationId = parsed.conversationId;
+                                const newUrl = new URL(window.location);
+                                newUrl.searchParams.set('conversationId', conversationId);
+                                window.history.replaceState({}, '', newUrl);
+                                console.log('📌 获取到 conversationId (buffer):', conversationId);
+                                continue;
                             }
-                            fullText += data;
-                            contentDiv.textContent = fullText;
-                            scrollToBottom();
+                        } catch (_) {}
+                    }
+
+                    if (data) {
+                        if (!hasReceivedData) {
+                            hasReceivedData = true;
+                            timeDiv.textContent = getCurrentTime();
                         }
+                        fullText += data;
+                        contentDiv.textContent = fullText;
+                        scrollToBottom();
                     }
                 }
             }
@@ -506,9 +584,6 @@
         }
     }
 
-    // ================================================================
-    // 发送消息入口
-    // ================================================================
     async function sendMessage() {
         const message = messageInput.value.trim();
         if (!message || isProcessing) return;
@@ -537,11 +612,7 @@
         }
     }
 
-    // ================================================================
-    // 事件绑定
-    // ================================================================
     sendBtn.addEventListener('click', sendMessage);
-
     messageInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -550,11 +621,10 @@
     });
 
     // ================================================================
-    // 初始化
+    // 11. 初始化
     // ================================================================
     document.getElementById('welcomeTime').textContent = getCurrentTime();
     messageInput.focus();
 </script>
-
 </body>
 </html>

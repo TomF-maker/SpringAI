@@ -35,7 +35,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // 放行所有页面和静态资源
-                        .requestMatchers("/", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/css/**", "/js/**", "/error").permitAll()
+                        .requestMatchers("/", "/history", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/css/**", "/js/**", "/error").permitAll()
                         // 放行认证和测试 API
                         .requestMatchers("/api/auth/**", "/api/test/**").permitAll()
                         // 放行流接口
