@@ -197,7 +197,9 @@ docker run -d --name ollama --restart=always -p 11434:11434 ollama/ollama
 
 # 下载模型
 docker exec -it ollama ollama pull qwen2.5:1.5b
-docker exec -it ollama ollama pull nomic-embed-text
+# 嵌入模型必须是 bge-m3（1024 维），要和 application.yaml 的
+# spring.ai.vectorstore.qdrant.vector-size 以及 Qdrant 集合维度一致
+docker exec -it ollama ollama pull bge-m3
 ```
 
 ### 5️⃣ 启动 Qdrant

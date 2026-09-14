@@ -103,6 +103,10 @@ public class DocumentServiceImpl implements DocumentServiceI {
     @Value("${spring.ai.vectorstore.qdrant.collection-name:purchase_docs}")
     private String collectionName;
 
+    /** 向量维度：必须与 embedding 模型一致（bge-m3 = 1024），只从配置读，别再写死 */
+    @Value("${spring.ai.vectorstore.qdrant.vector-size:1024}")
+    private int vectorSize;
+
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
 
@@ -189,8 +193,14 @@ public class DocumentServiceImpl implements DocumentServiceI {
     }
 
     // ==================== 上传 MultipartFile ====================
+    // 刻意不加 @Transactional：processDocument 里是几分钟的远程 embedding。
+    // 把这段套进事务，JDBC 连接就会空挂着开着的事务直到被 MySQL / 中间设备掐断
+    // （178 段就要 11 分钟，公网连接必断），提交和回滚双双失败；
+    // 而 Qdrant 的向量本来就不在这个事务里 —— 结果是文档行被隐式回滚掉、
+    // 向量留下变成没有主人的孤儿，检索不到还占着库。
+    // 现在 insert 立即提交（文档马上以"待处理"出现在列表里，不用等十几分钟），
+    // embedding 在事务外跑，成功置 status=1，失败置 status=2，不会静默消失。
     @Override
-    @Transactional
     public KbDocument uploadDocument(MultipartFile file, DocumentUploadDTO metadata, Long currentUserId) throws IOException {
         String fileName = file.getOriginalFilename();
         log.info("📤 上传文档: {}, 用户: {}", fileName, currentUserId);
@@ -219,13 +229,26 @@ public class DocumentServiceImpl implements DocumentServiceI {
         doc.setViewCount(0);
         doc.setCreatedAt(LocalDateTime.now());
         doc.setUpdatedAt(LocalDateTime.now());
-        documentMapper.insert(doc);  // 此时 doc.getId() 已赋值
+        documentMapper.insert(doc);  // 此时 doc.getId() 已赋值（已提交，见方法上的说明）
 
-        // 4. 处理向量化（传入文档ID）
-        int chunkCount = processDocument(file, doc.getId(), doc);
-        doc.setChunkCount(chunkCount);
-        doc.setStatus(1);
-        documentMapper.updateById(doc);
+        // 4. 处理向量化（传入文档ID）—— 在事务外，失败要把文档标成"失败"而不是让它挂在"待处理"
+        try {
+            int chunkCount = processDocument(file, doc.getId(), doc);
+            doc.setChunkCount(chunkCount);
+            doc.setStatus(1);
+            documentMapper.updateById(doc);
+        } catch (Exception e) {
+            log.error("❌ 文档向量化失败，标记为失败: {}", doc.getTitle(), e);
+            try {
+                doc.setStatus(2);
+                documentMapper.updateById(doc);
+            } catch (Exception updateError) {
+                // 连标记失败都写不进去，通常意味着数据库连接也断了，
+                // 文档会停在 status=0，别把它吞掉
+                log.error("❌ 标记文档失败状态也失败了，文档将停留在待处理: {}", doc.getId(), updateError);
+            }
+            throw e;
+        }
 
         logDocumentAction(doc.getId(), currentUserId, "UPLOAD");
         log.info("✅ 文档上传成功: {}", doc.getTitle());
@@ -233,8 +256,8 @@ public class DocumentServiceImpl implements DocumentServiceI {
     }
 
     // ==================== 从 URL 上传 ====================
+    // 同 uploadDocument：不能把几分钟的 embedding 套进事务，理由见那边的方法注释
     @Override
-    @Transactional
     public KbDocument uploadFromUrl(String url, DocumentUploadDTO metadata, Long currentUserId) throws IOException {
         log.info("📤 从URL上传: {}, 用户: {}", url, currentUserId);
 
@@ -300,10 +323,21 @@ public class DocumentServiceImpl implements DocumentServiceI {
         documentMapper.insert(doc);
 
         // 向量化
-        int chunkCount = processDocument(multipartFile, doc.getId(), doc);
-        doc.setChunkCount(chunkCount);
-        doc.setStatus(1);
-        documentMapper.updateById(doc);
+        try {
+            int chunkCount = processDocument(multipartFile, doc.getId(), doc);
+            doc.setChunkCount(chunkCount);
+            doc.setStatus(1);
+            documentMapper.updateById(doc);
+        } catch (Exception e) {
+            log.error("❌ 文档向量化失败，标记为失败: {}", doc.getTitle(), e);
+            try {
+                doc.setStatus(2);
+                documentMapper.updateById(doc);
+            } catch (Exception updateError) {
+                log.error("❌ 标记文档失败状态也失败了，文档将停留在待处理: {}", doc.getId(), updateError);
+            }
+            throw e;
+        }
 
         logDocumentAction(doc.getId(), currentUserId, "UPLOAD_URL");
         log.info("✅ URL上传成功: {}", doc.getTitle());
@@ -701,11 +735,11 @@ public class DocumentServiceImpl implements DocumentServiceI {
                 log.info("📦 集合 {} 不存在，正在创建...", collectionName);
                 io.qdrant.client.grpc.Collections.VectorParams vectorParams =
                         io.qdrant.client.grpc.Collections.VectorParams.newBuilder()
-                                .setSize(768)   // nomic-embed-text 向量维度
+                                .setSize(vectorSize)   // 与 embedding 模型维度一致，见 application.yaml
                                 .setDistance(io.qdrant.client.grpc.Collections.Distance.Cosine)
                                 .build();
                 qdrantClient.createCollectionAsync(collectionName, vectorParams).get();
-                log.info("✅ 集合 {} 创建成功", collectionName);
+                log.info("✅ 集合 {} 创建成功，维度: {}", collectionName, vectorSize);
             }
         } catch (Exception e) {
             log.error("❌ 检查/创建集合失败: {}", e.getMessage(), e);
