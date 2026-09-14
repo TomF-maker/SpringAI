@@ -44,6 +44,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
+        // 3. 放行 RAG 问答：允许未登录提问。
+        //    这里只做"放行到控制器"，真正的身份判定与配额在
+        //    RagController.isAnonymous() + AnonymousQuestionLimiter 里 ——
+        //    带了有效 token 的请求依然会被下面的逻辑设置认证上下文。
+        if (requestURI.startsWith("/api/rag/chat")) {
+            String header = request.getHeader("Authorization");
+            if (header == null || !header.startsWith("Bearer ")) {
+                // 没带 token：直接放行为匿名请求，交给控制器扣配额
+                filterChain.doFilter(request, response);
+                return;
+            }
+            // 带了 token 就照常校验，无效时不静默降级成匿名（否则失效 token 会绕过配额）
+        }
+
         // 3. 对 API 请求进行 Token 校验
         String authHeader = request.getHeader("Authorization");
 

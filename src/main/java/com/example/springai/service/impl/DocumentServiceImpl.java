@@ -15,6 +15,7 @@ import com.example.springai.mapper.KbDocumentMapper;
 import com.example.springai.mapper.SysDepartmentMapper;
 import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.service.DocumentServiceI;
+import com.example.springai.service.ExcelDocumentServiceI;
 import com.example.springai.service.OcrServiceI;
 import com.example.springai.service.WordDocumentServiceI;
 import io.qdrant.client.QdrantClient;
@@ -77,6 +78,9 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
     @Autowired
     private WordDocumentServiceI wordDocumentServiceI;
+
+    @Autowired
+    private ExcelDocumentServiceI excelDocumentServiceI;
 
     @Autowired
     private QdrantClient qdrantClient;
@@ -452,7 +456,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
     private boolean isSupportedFileType(String fileName) {
         String ext = getFileExtension(fileName).toLowerCase();
-        return Arrays.asList("pdf", "doc", "docx", "txt", "md").contains(ext);
+        return Arrays.asList("pdf", "doc", "docx", "xls", "xlsx", "txt", "md").contains(ext);
     }
 
     private String getFileExtension(String fileName) {
@@ -597,6 +601,8 @@ public class DocumentServiceImpl implements DocumentServiceI {
             return extractTextFromPDF(file);
         } else if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
             return wordDocumentServiceI.extractText(file);
+        } else if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
+            return excelDocumentServiceI.extractText(file);
         } else if (lowerName.endsWith(".txt") || lowerName.endsWith(".md")) {
             try (InputStream inputStream = file.getInputStream()) {
                 return new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);

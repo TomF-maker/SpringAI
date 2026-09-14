@@ -22,6 +22,20 @@
             height: 100vh;
             height: 100dvh;
         }
+        /* 游客提示条 */
+        .guest-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #fff8e6;
+            border: 1px solid #fde68a;
+            color: #92400e;
+            border-radius: 10px;
+            padding: 10px 16px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+        .guest-banner i { font-size: 16px; }
         .chat-container {
             width: 100%;
             max-width: 100%;
@@ -164,6 +178,13 @@
         <!-- 顶部栏 -->
         <div th:replace="~{fragments/layout :: topbar('💬 智能问答')}"></div>
 
+        <!-- 游客提示：未登录时显示（由 JS 控制显隐） -->
+        <div id="guestBanner" class="guest-banner d-none">
+            <i class="bi bi-info-circle"></i>
+            <span>游客模式 · 今日还可提问 <strong id="guestQuota">--</strong> 次</span>
+            <a href="/login" class="btn btn-sm btn-primary ms-auto">登录后不限次数</a>
+        </div>
+
         <!-- 聊天容器 -->
         <div class="chat-container">
             <div class="chat-header">
@@ -194,18 +215,20 @@
 <script src="/js/app.js?v=1"></script>
 <script>
     // ================================================================
-    // 1. 认证拦截器（最先执行）
+    // 1. 认证：允许未登录使用（游客模式，按 IP 每日限额）
     // ================================================================
     const token = localStorage.getItem('token');
-    if (!token) {
-        window.location.href = '/login';
-    }
+    // 没有 token 不再跳登录，改为游客模式；后端会在超限时返回提示
+    const isGuest = !token;
 
-    // 覆盖 fetch，为所有请求自动添加 Token
+    // 覆盖 fetch：有 token 才带 Authorization 头
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const url = args[0];
         if (typeof url === 'string' && (url.includes('/api/auth/') || url.includes('/login') || url.includes('/register'))) {
+            return originalFetch.apply(this, args);
+        }
+        if (!token) {
             return originalFetch.apply(this, args);
         }
         const options = args[1] || {};
@@ -214,6 +237,29 @@
         args[1] = options;
         return originalFetch.apply(this, args);
     };
+
+    // 游客提示条 + 剩余次数
+    async function refreshGuestQuota() {
+        if (!isGuest) return;
+        const banner = document.getElementById('guestBanner');
+        if (!banner) return;
+        banner.classList.remove('d-none');
+        try {
+            const resp = await fetch('/api/rag/chat/quota');
+            const data = await resp.json();
+            if (data.success) {
+                if (!data.data.enabled) {
+                    // 免登录提问被关掉了，直接引导去登录
+                    document.getElementById('guestQuota').textContent = '0';
+                    return;
+                }
+                document.getElementById('guestQuota').textContent = data.data.remaining;
+            }
+        } catch (err) {
+            console.error('获取游客配额失败', err);
+        }
+    }
+    refreshGuestQuota();
 
     // ================================================================
     // 2. 工具函数（提前定义，供后续使用）
@@ -486,6 +532,8 @@
             sendBtn.disabled = false;
             messageInput.disabled = false;
             messageInput.focus();
+            // 游客模式下每次问完刷新一下剩余次数
+            refreshGuestQuota();
         }
     }
 

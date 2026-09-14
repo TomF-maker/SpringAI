@@ -45,11 +45,11 @@ public class DocumentController {
             return Response.fail(ErrorCode.BAD_REQUEST, "文件不能为空");
         }
         String fileName = file.getOriginalFilename();
-        if (fileName == null ||
-                !(fileName.toLowerCase().endsWith(".pdf") ||
-                        fileName.toLowerCase().endsWith(".doc") ||
-                        fileName.toLowerCase().endsWith(".docx"))) {
-            return Response.fail(ErrorCode.BAD_REQUEST, "仅支持 PDF、DOC、DOCX 格式文件");
+        // 与 DocumentServiceImpl.isSupportedFileType 的白名单保持一致。
+        // 此前这里只放行 pdf/doc/docx，比 service 层还窄，导致 txt/md/xlsx 走这个接口会被拒。
+        if (fileName == null || !isSupportedExtension(fileName)) {
+            return Response.fail(ErrorCode.BAD_REQUEST,
+                    "仅支持 PDF、DOC、DOCX、XLS、XLSX、TXT、MD 格式文件");
         }
         try {
             int chunkCount = documentService.processDocument(file);
@@ -157,6 +157,14 @@ public class DocumentController {
     @GetMapping("/{id}")
     public Response<KbDocument> getDocument(@PathVariable Long id) {
         return Response.success(documentService.getDocumentById(id));
+    }
+
+    /** 与 service 层保持一致的白名单，避免两个地方各写一份、时间一长就对不上。 */
+    private boolean isSupportedExtension(String fileName) {
+        String lower = fileName.toLowerCase();
+        return lower.endsWith(".pdf") || lower.endsWith(".doc") || lower.endsWith(".docx")
+                || lower.endsWith(".xls") || lower.endsWith(".xlsx")
+                || lower.endsWith(".txt") || lower.endsWith(".md");
     }
 
     private SysUser currentUser(Authentication authentication) {

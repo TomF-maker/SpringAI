@@ -12,6 +12,8 @@ public enum ErrorCode implements ErrorCodeI {
     FORBIDDEN("403", "没有权限执行该操作"),
     BAD_REQUEST("400", "请求参数错误"),
     NOT_FOUND("404", "资源不存在"),
+    /** 超出配额（如匿名单日提问次数）。按业务失败处理，HTTP 仍是 200。 */
+    TOO_MANY_REQUESTS("429", "请求过于频繁"),
     INTERNAL_ERROR("500", "服务器内部错误");
 
     private final String errCode;

@@ -282,9 +282,10 @@ public class RagServiceImpl implements RagServiceI {
     }
 
     private List<Document> retrieveDocuments(String question, SysUser user) {
-        if (user == null) {
-            return Collections.emptyList();
-        }
+        // 注意：这里**不能**对 user == null 直接返回空列表。
+        // 匿名用户是允许提问的（每日有配额），先前那样写会让匿名调用永远检不到
+        // 任何文档、静默地回复"未找到相关内容"，看起来像知识库是空的。
+        // 匿名该看到的范围由 buildQdrantFilter 决定（仅公开文档）。
 
         // 1. 构建 Qdrant Filter
         Common.Filter filter = buildQdrantFilter(user);
@@ -409,25 +410,20 @@ public class RagServiceImpl implements RagServiceI {
 
 
     private Common.Filter buildQdrantFilter(SysUser user) {
+        // 匿名（未登录）：仅公开文档。与"外部用户"同一条规则。
+        // 必须放在最前面判空 —— 下面第一行就是 user.getIsAdmin()，传 null 会直接 NPE。
+        if (user == null) {
+            return publicOnlyFilter();
+        }
+
         // 管理员：无过滤
         if (user.getIsAdmin() == 1) {
             return null;
         }
 
-        Common.Filter.Builder filterBuilder = Common.Filter.newBuilder();
-
         // 外部用户：仅公开文档
         if (user.getUserType() != null && user.getUserType() == 2) {
-            Common.FieldCondition fieldCondition = Common.FieldCondition.newBuilder()
-                    .setKey("is_public")
-                    .setMatch(Common.Match.newBuilder()
-                            .setKeyword("1")
-                            .build())
-                    .build();
-            Common.Condition condition = Common.Condition.newBuilder()
-                    .setField(fieldCondition)
-                    .build();
-            return filterBuilder.addMust(condition).build();
+            return publicOnlyFilter();
         }
 
         // 内部用户：本部门文档 + 公开文档
@@ -463,16 +459,26 @@ public class RagServiceImpl implements RagServiceI {
                     .build();
         } else {
             // 用户无部门，仅公开文档
-            Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
-                    .setKey("is_public")
-                    .setMatch(Common.Match.newBuilder()
-                            .setKeyword("1")
-                            .build())
-                    .build();
-            Common.Condition pubCondition = Common.Condition.newBuilder()
-                    .setField(pubField)
-                    .build();
-            return Common.Filter.newBuilder().addMust(pubCondition).build();
+            return publicOnlyFilter();
         }
+    }
+
+    /**
+     * "仅公开文档"过滤：{@code is_public == 1}。
+     *
+     * <p>匿名用户、外部用户、无部门的内部用户都走这条规则，抽出来避免三处各写一遍。
+     * 注意 payload 里的值存的是字符串，所以用 {@code setKeyword("1")} 而不是数字匹配。
+     */
+    private Common.Filter publicOnlyFilter() {
+        Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
+                .setKey("is_public")
+                .setMatch(Common.Match.newBuilder()
+                        .setKeyword("1")
+                        .build())
+                .build();
+        Common.Condition pubCondition = Common.Condition.newBuilder()
+                .setField(pubField)
+                .build();
+        return Common.Filter.newBuilder().addMust(pubCondition).build();
     }
 }

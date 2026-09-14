@@ -38,8 +38,12 @@ public class SecurityConfig {
                         .requestMatchers("/", "/history", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/css/**", "/js/**", "/error").permitAll()
                         // 放行认证 API（/api/test/** 已随测试接口一起删除）
                         .requestMatchers("/api/auth/**").permitAll()
+                        // 放行 RAG 问答：允许未登录用户提问（按 IP 每日限额在
+                        // AnonymousQuestionLimiter 里控制，不在这里）。
+                        // /api/rag/chat 这个前缀同时覆盖 /chat 和 /chat/stream。
+                        .requestMatchers("/api/rag/chat/**", "/api/rag/chat").permitAll()
                         // 放行流接口
-                        .requestMatchers("/api/rag/chat/stream","/api/qdrant/clear").permitAll()
+                        .requestMatchers("/api/qdrant/clear").permitAll()
                         // 其他所有 API 需要认证
                         .anyRequest().authenticated()
                 )
