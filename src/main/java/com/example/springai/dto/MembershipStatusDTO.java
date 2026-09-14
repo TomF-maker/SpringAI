@@ -21,6 +21,12 @@ public class MembershipStatusDTO {
     private LocalDateTime memberExpireAt;
     /** 当前是否有效会员（已把过期与脏数据都算进去）。 */
     private boolean active;
+    /**
+     * 是否永久会员。永久会员**不能再兑换任何有限档位** ——
+     * 前端据此隐藏兑换按钮，服务端也会拒绝。放这里是为了让判定只有一处，
+     * 前端不用自己去比 'PERMANENT' 字符串（那样两边迟早漂移）。
+     */
+    private boolean permanent;
     /** 距到期天数；永久会员与非会员为 null。 */
     private Long remainingDays;
     /** 积分余额。 */

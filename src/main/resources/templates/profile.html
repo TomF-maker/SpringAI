@@ -42,6 +42,11 @@
         .plan-btn .p-label { font-size: 14px; font-weight: 600; color: #1e293b; }
         .plan-btn .p-cost { font-size: 13px; font-weight: 600; color: #1a73e8; }
         .plan-btn .p-hint { font-size: 11px; color: #94a3b8; text-align: center; }
+        .plan-note {
+            padding: 12px 14px; border-radius: 10px;
+            background: #f4f8ff; border: 1px solid #cfe0f7;
+            color: #1a73e8; font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -310,12 +315,12 @@
         document.getElementById('memberPoints').textContent = st.points == null ? 0 : st.points;
 
         let state;
-        if (st.active) {
-            state = st.memberType === 'PERMANENT'
-                ? '永久会员'
-                : (st.memberTypeLabel || '会员')
-                  + ' · 剩余 ' + (st.remainingDays == null ? '-' : st.remainingDays) + ' 天'
-                  + '（' + fmtDateTime(st.memberExpireAt) + ' 到期）';
+        if (st.permanent) {
+            state = '永久会员';
+        } else if (st.active) {
+            state = (st.memberTypeLabel || '会员')
+                + ' · 剩余 ' + (st.remainingDays == null ? '-' : st.remainingDays) + ' 天'
+                + '（' + fmtDateTime(st.memberExpireAt) + ' 到期）';
         } else {
             state = '非会员 · 今日还剩 ' + st.freeRemaining + '/' + st.freeDailyLimit + ' 次免费提问';
         }
@@ -325,9 +330,19 @@
 
     function renderPlans() {
         const st = membershipStatus;
+        const box = document.getElementById('planList');
+
+        // 永久会员已经是最高档，不能再买任何有限档位。
+        // 这里**连按钮都不给** —— 之前只挡了"永久档本身不可兑换"，
+        // 结果永久会员看到月度/季度/年度三个按钮都是可点的，点一次被服务端拒一次。
+        if (st.permanent) {
+            box.innerHTML = '<div class="plan-note">您已是永久会员，无需再兑换。</div>';
+            return;
+        }
+
         const points = st.points == null ? 0 : st.points;
 
-        document.getElementById('planList').innerHTML = membershipPlans.map(p => {
+        box.innerHTML = membershipPlans.map(p => {
             // 永久档 exchangeable=false，前端置灰；服务端也会拒绝（灰度只是 UX）
             const affordable = !p.exchangeable || points >= p.pointsCost;
             const disabled = !p.exchangeable || !affordable || exchanging;
@@ -347,6 +362,16 @@
     document.getElementById('planList').addEventListener('click', async function (e) {
         const btn = e.target.closest('[data-plan]');
         if (!btn || btn.disabled || exchanging) return;
+
+        // 第二道判断：永久会员的按钮本就不该存在，但页面可能是"还没成为永久会员"时
+        // 加载的旧状态 —— 比如在另一个标签页里被管理员设为永久，或者本页加载后
+        // 管理员刚发放。光靠 renderPlans() 不生成按钮挡不住这种情况，
+        // 那种情况下用户会先走一遍确认弹窗、再被服务端拒掉。
+        if (membershipStatus.permanent) {
+            Swal.fire('无需兑换', '您已是永久会员，享有全部权益。', 'info');
+            loadMembership();   // 顺手把页面状态刷成最新的
+            return;
+        }
 
         const plan = membershipPlans.find(p => p.type === btn.dataset.plan);
         if (!plan) return;

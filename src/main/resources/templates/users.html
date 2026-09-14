@@ -490,6 +490,8 @@
     // 12. 会员管理（管理员发放 —— 永久会员只能从这里发）
     // ================================================================
     let membershipModalInstance = null;
+    /** 打开弹窗时该用户的会员状态，用于判"是否在降级"。 */
+    let currentMembership = null;
 
     function fmtDay(value) {
         if (!value) return '';
@@ -512,6 +514,7 @@
             const data = await resp.json();
             if (!data.success) throw new Error(data.errMessage || '加载失败');
             const st = data.data;
+            currentMembership = st;
 
             let text = '非会员';
             if (st.active) {
@@ -532,13 +535,23 @@
         const memberType = document.getElementById('memberModalType').value;
         const remark = document.getElementById('memberModalRemark').value.trim();
 
+        // 把永久会员降级是不可逆的运营动作（要恢复得再发一次），
+        // 普通确认框太轻了 —— 点错了用户就永久失去权益。
+        const downgradingPermanent = currentMembership && currentMembership.permanent
+                                      && memberType !== 'PERMANENT';
+
         const confirm = await Swal.fire({
-            title: '确认修改会员？',
-            text: memberType ? '将把该用户设为「' + memberType + '」' : '将取消该用户的会员',
-            icon: 'question',
+            title: downgradingPermanent ? '⚠️ 正在把永久会员降级' : '确认修改会员？',
+            html: downgradingPermanent
+                ? '该用户当前是 <strong>永久会员</strong>，<br>改为 <strong>'
+                  + (memberType || '取消会员') + '</strong> 之后权益会被收回，<br>'
+                  + '<span class="text-danger">恢复需要重新发放，操作不可撤销。</span>'
+                : (memberType ? '将把该用户设为「' + memberType + '」' : '将取消该用户的会员'),
+            icon: downgradingPermanent ? 'warning' : 'question',
             showCancelButton: true,
-            confirmButtonText: '确认',
-            cancelButtonText: '取消'
+            confirmButtonText: downgradingPermanent ? '确认降级' : '确认',
+            cancelButtonText: '取消',
+            confirmButtonColor: downgradingPermanent ? '#d33' : undefined
         });
         if (!confirm.isConfirmed) return;
 

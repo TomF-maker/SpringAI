@@ -65,6 +65,7 @@ public class MembershipService implements MembershipServiceI {
 
         MembershipPlan plan = MembershipPlan.parse(user.getMemberType());
         dto.setMemberTypeLabel(plan == null ? null : plan.getLabel());
+        dto.setPermanent(isPermanent(user));
 
         // 判定只走这一处
         boolean active = user.hasActiveMembership(now);
@@ -116,8 +117,8 @@ public class MembershipService implements MembershipServiceI {
         if (user == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
         }
-        // 判档位，不判日期 —— 脏数据组合下判日期会误判
-        if (MembershipPlan.PERMANENT.name().equals(user.getMemberType())) {
+        // 永久会员已经是最高档，不能再买有限档位（哪怕积分够）
+        if (isPermanent(user)) {
             throw new BizException(ErrorCode.BAD_REQUEST, "已是永久会员，无需兑换");
         }
 
@@ -246,6 +247,17 @@ public class MembershipService implements MembershipServiceI {
             log.info("🧹 会员到期清理完成: 处理 {} 条（候选 {} 条）", done, candidates.size());
         }
         return done;
+    }
+
+    /**
+     * 是否已是永久会员。
+     *
+     * <p><b>判档位，不判日期。</b>永久会员的 {@code member_expire_at} 本来就是 NULL，
+     * 而脏数据里可能出现"永久档 + 一个过去的日期"，判日期会把它误判成已过期、
+     * 于是让永久会员又买了一次有限档位。包级可见是为了能直接单测这条规则。
+     */
+    static boolean isPermanent(SysUser user) {
+        return user != null && MembershipPlan.PERMANENT.name().equals(user.getMemberType());
     }
 
     /** 清理单条。幂等来源：CAS 命中才写 EXPIRE 日志。 */
