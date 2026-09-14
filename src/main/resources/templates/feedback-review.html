@@ -12,6 +12,7 @@
     <style>
         .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+        .filter-bar .form-control, .filter-bar .form-select { width: auto; min-width: 150px; }
 
         .rating-pill {
             display: inline-block; padding: 2px 10px; border-radius: 12px;
@@ -67,10 +68,17 @@
 
         <div class="content-card">
             <div class="filter-bar">
-                <button class="btn btn-sm btn-primary" data-status="PENDING">待审核</button>
-                <button class="btn btn-sm btn-outline-secondary" data-status="ACCEPTED">已采纳</button>
-                <button class="btn btn-sm btn-outline-secondary" data-status="REJECTED">已驳回</button>
-                <button class="btn btn-sm btn-outline-secondary" data-status="">全部</button>
+                <input type="text" id="keyword" class="form-control form-control-sm"
+                       placeholder="🔍 搜索意见内容" style="flex:1; min-width:200px;">
+                <!-- 默认选中"全部"：一进页面先看到全量，再自己收窄 -->
+                <select id="statusFilter" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    <option value="PENDING">待审核</option>
+                    <option value="ACCEPTED">已采纳</option>
+                    <option value="REJECTED">已驳回</option>
+                </select>
+                <button class="btn btn-sm btn-primary" id="searchBtn"><i class="bi bi-search"></i> 搜索</button>
+                <button class="btn btn-sm btn-outline-secondary" id="resetBtn"><i class="bi bi-arrow-counterclockwise"></i> 重置</button>
                 <span class="text-muted small ms-auto" id="summary">加载中…</span>
             </div>
 
@@ -196,7 +204,8 @@
     // ================================================================
     // 4. 状态
     // ================================================================
-    let currentStatus = 'PENDING';
+    /** 空串 = 全部。一进页面默认展示全部，不再默认只看待审核。 */
+    let currentStatus = '';
     let currentPage = 1;
     const pageSize = 10;
     let reviewModalInstance = null;
@@ -221,8 +230,10 @@
     // ================================================================
     async function loadSuggestions(page = 1) {
         currentPage = page;
+        const keyword = document.getElementById('keyword').value.trim();
         const params = new URLSearchParams({ page: page, size: pageSize });
         if (currentStatus) params.append('status', currentStatus);
+        if (keyword) params.append('keyword', keyword);
 
         try {
             const resp = await fetch('/api/admin/feedback/suggestions?' + params.toString());
@@ -382,17 +393,22 @@
     // ================================================================
     // 7. 事件绑定
     // ================================================================
-    document.querySelectorAll('[data-status]').forEach(btn => {
-        btn.addEventListener('click', function () {
-            document.querySelectorAll('[data-status]').forEach(b => {
-                b.classList.remove('btn-primary');
-                b.classList.add('btn-outline-secondary');
-            });
-            this.classList.remove('btn-outline-secondary');
-            this.classList.add('btn-primary');
-            currentStatus = this.dataset.status;
-            loadSuggestions(1);
-        });
+    // 状态下拉框：切换即查询（原来是一排按钮，改成下拉）
+    document.getElementById('statusFilter').addEventListener('change', function () {
+        currentStatus = this.value;
+        loadSuggestions(1);
+    });
+
+    // 关键词搜索：按钮和回车都触发，和文档管理页保持一致
+    document.getElementById('searchBtn').addEventListener('click', () => loadSuggestions(1));
+    document.getElementById('keyword').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') loadSuggestions(1);
+    });
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        document.getElementById('keyword').value = '';
+        document.getElementById('statusFilter').value = '';
+        currentStatus = '';
+        loadSuggestions(1);
     });
 
     document.getElementById('suggestionBody').addEventListener('click', function (e) {

@@ -112,15 +112,27 @@ public class AnswerFeedbackService implements AnswerFeedbackServiceI {
     }
 
     @Override
-    public Page<PendingSuggestionDTO> listSuggestions(String status, int page, int size) {
+    public Page<PendingSuggestionDTO> listSuggestions(String status, String keyword, int page, int size) {
         Page<PendingSuggestionDTO> pageParam = new Page<>(page, size);
         String normalized = StringUtils.hasText(status) ? status.trim().toUpperCase() : null;
+
+        // 模糊查询意见内容。用户输入里的 LIKE 通配符必须先转义，否则搜 "50%"
+        // 会变成匹配所有含 "50" 的内容 —— 结果悄悄变多，看起来像是"搜到了"。
+        // 转义符用 '!'（SQL 侧配 ESCAPE '!'），见 KbFeedbackSuggestionMapper 的说明。
+        String like = null;
+        if (StringUtils.hasText(keyword)) {
+            String escaped = keyword.trim()
+                    .replace("!", "!!")
+                    .replace("%", "!%")
+                    .replace("_", "!_");
+            like = "%" + escaped + "%";
+        }
 
         // 注意：MyBatis-Plus 的自定义分页方法，如果返回类型是 List（而不是 IPage），
         // 它只把 LIMIT 应用到 SQL 上、把结果作为**返回值**给出来，
         // **不会**回填到传入的 page 对象里。所以这里必须用返回值，
         // 读 page.getRecords() 会永远是空列表（而 total 却是对的，很容易误判成"查到了但没数据"）。
-        List<PendingSuggestionDTO> records = suggestionMapper.selectSuggestions(pageParam, normalized);
+        List<PendingSuggestionDTO> records = suggestionMapper.selectSuggestions(pageParam, normalized, like);
         if (records == null) {
             records = Collections.emptyList();
         }

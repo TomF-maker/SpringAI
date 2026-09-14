@@ -40,14 +40,16 @@ public class FeedbackAdminController {
     /**
      * 审核列表。
      *
-     * @param status PENDING / ACCEPTED / REJECTED，不传查全部
+     * @param status  PENDING / ACCEPTED / REJECTED，不传查全部
+     * @param keyword 按意见内容模糊匹配，不传不过滤
      */
     @GetMapping("/suggestions")
     public Response<PageResult<PendingSuggestionDTO>> listSuggestions(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        Page<PendingSuggestionDTO> p = feedbackService.listSuggestions(status, page, size);
+        Page<PendingSuggestionDTO> p = feedbackService.listSuggestions(status, keyword, page, size);
         return Response.success(PageResult.of(p.getRecords(), p.getTotal(), p.getCurrent(), p.getSize()));
     }
 

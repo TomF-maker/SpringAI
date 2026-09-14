@@ -22,6 +22,11 @@ public interface KbFeedbackSuggestionMapper extends BaseMapper<KbFeedbackSuggest
      *
      * <p>第一个参数是 {@code IPage}，MyBatis-Plus 的分页拦截器会自动改写 SQL 并回填 total。
      * {@code status} 传 null 表示查全部。
+     *
+     * <p>{@code keyword} 是**已经拼好通配符并转义过**的 LIKE 模式（如 {@code %关键词%}），
+     * 不是用户原文 —— 拼装和转义都在 service 里做，SQL 这层只负责比较。
+     * 转义符固定用 {@code !}：反斜杠在 Java text block 和 MySQL 字符串里都要再转一层，
+     * 写成 {@code ESCAPE '\\'} 极易搞错，换个字符就没这个坑。
      */
     @Select("""
             SELECT s.id, s.content, s.status, s.awarded_points, s.review_remark,
@@ -35,10 +40,12 @@ public interface KbFeedbackSuggestionMapper extends BaseMapper<KbFeedbackSuggest
             LEFT JOIN sys_user u ON u.id = s.user_id
             LEFT JOIN kb_question_log q ON q.id = f.question_log_id
             WHERE (#{status} IS NULL OR s.status = #{status})
+              AND (#{keyword} IS NULL OR s.content LIKE #{keyword} ESCAPE '!')
             ORDER BY s.created_at DESC, s.id DESC
             """)
     List<PendingSuggestionDTO> selectSuggestions(IPage<PendingSuggestionDTO> page,
-                                                 @Param("status") String status);
+                                                 @Param("status") String status,
+                                                 @Param("keyword") String keyword);
 
     /** 待审核条数，用于菜单上的角标/提示。 */
     @Select("SELECT COUNT(*) FROM kb_feedback_suggestion WHERE status = 'PENDING'")

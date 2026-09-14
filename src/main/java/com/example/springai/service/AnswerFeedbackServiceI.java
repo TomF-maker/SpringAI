@@ -20,8 +20,13 @@ public interface AnswerFeedbackServiceI {
      */
     void submit(Long userId, FeedbackRequest request);
 
-    /** 管理端：分页查询优化意见。status 传 null 查全部。 */
-    Page<PendingSuggestionDTO> listSuggestions(String status, int page, int size);
+    /**
+     * 管理端：分页查询优化意见。
+     *
+     * @param status  PENDING / ACCEPTED / REJECTED，传 null 查全部
+     * @param keyword 按意见内容模糊匹配，传 null 或空白不过滤
+     */
+    Page<PendingSuggestionDTO> listSuggestions(String status, String keyword, int page, int size);
 
     /**
      * 管理端：审核一条优化意见。采纳时给提建议的人加积分。
