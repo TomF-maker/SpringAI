@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>意见审核 - 采购智能助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
+    <link rel="stylesheet" href="/css/app.css?v=2">
+    <style>
+        .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+
+        .rating-pill {
+            display: inline-block; padding: 2px 10px; border-radius: 12px;
+            font-size: 12px; white-space: nowrap;
+        }
+        .rating-pill.neg { background: #fde8e8; color: #b42318; }
+        .rating-pill.mid { background: #fff4e5; color: #92400e; }
+        .rating-pill.pos { background: #e7f6ec; color: #1a7f37; }
+
+        .status-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+        .status-pill.PENDING  { background: #fff3cd; color: #856404; }
+        .status-pill.ACCEPTED { background: #d4edda; color: #155724; }
+        .status-pill.REJECTED { background: #f1f3f5; color: #6b7280; }
+
+        .hit-tag {
+            display: inline-block; padding: 1px 7px; border-radius: 8px;
+            font-size: 11px; background: #eef2f7; color: #64748b;
+        }
+        .cell-clip {
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden; overflow-wrap: anywhere; max-width: 320px;
+        }
+
+        /* 审核弹窗里"原问题 / 原回答"的展示块 —— 管理员就是靠这两块判断建议合不合理 */
+        .ctx-block { background: #f8fafc; border: 1px solid #eef2f7; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+        .ctx-block .ctx-label { font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
+        .ctx-block .ctx-body { font-size: 13px; color: #1e293b; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto; }
+
+        .tier-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .tier-btn { border: 1px solid #dbe3ec; background: #fff; border-radius: 10px; padding: 8px 14px; cursor: pointer; text-align: center; }
+        .tier-btn .t-name { display: block; font-size: 13px; color: #475569; }
+        .tier-btn .t-points { display: block; font-size: 12px; color: #1a73e8; font-weight: 600; }
+        .tier-btn.active { border-color: #1a73e8; background: #f4f8ff; }
+
+        @media (max-width: 991.98px) {
+            .filter-bar { gap: 8px; }
+            .table-responsive { font-size: 13px; }
+            .cell-clip { max-width: 180px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <!-- 侧边栏（共享片段，菜单顺序唯一定义处） -->
+    <div th:replace="~{fragments/layout :: sidebar('feedback-review')}"></div>
+    <!-- 移动端遮罩（必须是 .sidebar 的兄弟节点） -->
+    <div th:replace="~{fragments/layout :: backdrop}"></div>
+
+    <!-- 主内容 -->
+    <div class="main-content">
+        <div th:replace="~{fragments/layout :: topbar('📝 意见审核')}"></div>
+
+        <div class="content-card">
+            <div class="filter-bar">
+                <button class="btn btn-sm btn-primary" data-status="PENDING">待审核</button>
+                <button class="btn btn-sm btn-outline-secondary" data-status="ACCEPTED">已采纳</button>
+                <button class="btn btn-sm btn-outline-secondary" data-status="REJECTED">已驳回</button>
+                <button class="btn btn-sm btn-outline-secondary" data-status="">全部</button>
+                <span class="text-muted small ms-auto" id="summary">加载中…</span>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                    <tr>
+                        <th style="width:140px;">提交时间</th>
+                        <th style="width:120px;">提问人</th>
+                        <th style="width:110px;">评价</th>
+                        <th>优化意见</th>
+                        <th style="width:100px;">状态</th>
+                        <th style="width:90px;">奖励</th>
+                        <th style="width:120px;">操作</th>
+                    </tr>
+                    </thead>
+                    <tbody id="suggestionBody">
+                    <tr><td colspan="7" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <nav aria-label="Page navigation" class="mt-3">
+                <ul class="pagination justify-content-end" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 审核弹窗 ========== -->
+<div class="modal fade" id="reviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-clipboard-check"></i> 审核优化意见</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- 原问题与原回答：判断建议合不合理必须看到这两块 -->
+                <div class="ctx-block">
+                    <div class="ctx-label">原问题</div>
+                    <div class="ctx-body" id="rvQuestion"></div>
+                </div>
+                <div class="ctx-block">
+                    <div class="ctx-label">原回答 <span id="rvHitType"></span></div>
+                    <div class="ctx-body" id="rvAnswer"></div>
+                </div>
+                <div class="ctx-block">
+                    <div class="ctx-label">用户提出的优化意见（<span id="rvRating"></span>）</div>
+                    <div class="ctx-body" id="rvSuggestion"></div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">积分奖励档位</label>
+                    <div class="tier-row" id="tierRow"></div>
+                    <div class="form-text">选择档位，或在下面填自定义积分（自定义优先）。</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">自定义积分（可选）</label>
+                    <input type="number" class="form-control" id="rvCustomPoints" min="1" max="10000"
+                           placeholder="留空则使用所选档位">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">审核备注（可选，会展示给用户）</label>
+                    <textarea class="form-control" id="rvRemark" rows="2" maxlength="500"
+                              placeholder="例如：已根据该建议补充了知识库文档"></textarea>
+                </div>
+                <input type="hidden" id="rvSuggestionId">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-outline-danger" id="rejectBtn"><i class="bi bi-x-circle"></i> 驳回</button>
+                <button class="btn btn-primary" id="acceptBtn"><i class="bi bi-check2-circle"></i> 采纳并发放积分</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
+<script src="/js/app.js?v=2"></script>
+<script>
+    // ================================================================
+    // 1. 认证检查（与用户管理页一致：仅管理员）
+    // ================================================================
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = '/login';
+    if (localStorage.getItem('username') !== 'admin') {
+        alert('⚠️ 仅管理员可访问此页面');
+        window.location.href = '/chat';
+    }
+
+    // ================================================================
+    // 2. 全局 fetch 拦截器（自动携带 Token）
+    // ================================================================
+    const originalFetch = window.fetch;
+    window.fetch = function (...args) {
+        const url = args[0];
+        if (typeof url === 'string' && url.includes('/api/auth/')) {
+            return originalFetch.apply(this, args);
+        }
+        const options = args[1] || {};
+        options.headers = options.headers || {};
+        const currentToken = localStorage.getItem('token');
+        if (currentToken) {
+            options.headers['Authorization'] = `Bearer ${currentToken}`;
+        }
+        args[1] = options;
+        return originalFetch.apply(this, args);
+    };
+
+    // ================================================================
+    // 3. 忽略 XSS：本页展示的是用户提交的文本，一律转义后再拼 HTML
+    // ================================================================
+    function esc(text) {
+        if (text == null) return '';
+        return String(text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // ================================================================
+    // 4. 状态
+    // ================================================================
+    let currentStatus = 'PENDING';
+    let currentPage = 1;
+    const pageSize = 10;
+    let reviewModalInstance = null;
+    let currentRow = null;
+    /** 当前页数据。点击"审核"时从这里取回整行，不用再请求一次。 */
+    let lastRows = [];
+    let selectedTier = null;
+    let tiers = [
+        { value: 'SMALL', label: '小改进', points: 50 },
+        { value: 'MEDIUM', label: '有价值', points: 100 },
+        { value: 'LARGE', label: '重大改进', points: 200 }
+    ];
+
+    function ratingClass(rating) {
+        if (rating === 'NOT_HELPFUL' || rating === 'USELESS') return 'neg';
+        if (rating === 'NEUTRAL') return 'mid';
+        return 'pos';
+    }
+
+    // ================================================================
+    // 5. 加载列表
+    // ================================================================
+    async function loadSuggestions(page = 1) {
+        currentPage = page;
+        const params = new URLSearchParams({ page: page, size: pageSize });
+        if (currentStatus) params.append('status', currentStatus);
+
+        try {
+            const resp = await fetch('/api/admin/feedback/suggestions?' + params.toString());
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.errMessage || '加载失败');
+
+            const pr = data.data || {};
+            renderTable(pr.records || []);
+            renderPagination(pr.total || 0, pr.page || 1, pr.size || pageSize);
+            document.getElementById('summary').textContent = `共 ${pr.total || 0} 条`;
+        } catch (err) {
+            document.getElementById('suggestionBody').innerHTML =
+                `<tr><td colspan="7" class="text-center text-danger py-4">❌ 加载失败：${esc(err.message)}</td></tr>`;
+        }
+    }
+
+    function renderTable(rows) {
+        lastRows = rows;
+        const tbody = document.getElementById('suggestionBody');
+        if (!rows.length) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">暂无数据</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = rows.map(r => `
+            <tr>
+                <td class="text-muted small">${esc((r.createdAt || '').replace('T', ' ').substring(0, 16))}</td>
+                <td>${esc(r.realName || r.username || '-')}
+                    <div class="text-muted small">积分 ${r.userPoints == null ? 0 : r.userPoints}</div>
+                </td>
+                <td><span class="rating-pill ${ratingClass(r.rating)}">${esc(r.ratingLabel || r.rating || '-')}</span></td>
+                <td>
+                    <div class="cell-clip" title="${esc(r.content)}">${esc(r.content)}</div>
+                    <div class="text-muted small mt-1" title="${esc(r.question)}">问：${esc(r.question || '-')}</div>
+                </td>
+                <td><span class="status-pill ${esc(r.status)}">${
+                    r.status === 'PENDING' ? '待审核' : (r.status === 'ACCEPTED' ? '已采纳' : '已驳回')}</span></td>
+                <td>${r.awardedPoints != null ? '+' + r.awardedPoints : '-'}</td>
+                <td>
+                    <button class="btn btn-sm ${r.status === 'PENDING' ? 'btn-primary' : 'btn-outline-secondary'}"
+                            data-review="${r.id}">
+                        ${r.status === 'PENDING' ? '审核' : '查看'}
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function renderPagination(total, page, size) {
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        const ul = document.getElementById('pagination');
+        if (totalPages <= 1) { ul.innerHTML = ''; return; }
+
+        let html = '';
+        const item = (p, label, disabled, active) =>
+            `<li class="page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}">
+                <a class="page-link" href="#" data-page="${p}">${label}</a></li>`;
+
+        html += item(page - 1, '上一页', page <= 1, false);
+        for (let p = 1; p <= totalPages; p++) {
+            if (p === 1 || p === totalPages || Math.abs(p - page) <= 2) {
+                html += item(p, p, false, p === page);
+            } else if (Math.abs(p - page) === 3) {
+                html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+            }
+        }
+        html += item(page + 1, '下一页', page >= totalPages, false);
+        ul.innerHTML = html;
+    }
+
+    // ================================================================
+    // 6. 审核弹窗
+    // ================================================================
+    function renderTiers() {
+        document.getElementById('tierRow').innerHTML = tiers.map(t => `
+            <div class="tier-btn ${selectedTier === t.value ? 'active' : ''}" data-tier="${t.value}">
+                <span class="t-name">${esc(t.label)}</span>
+                <span class="t-points">+${t.points}</span>
+            </div>
+        `).join('');
+    }
+
+    function openReview(row) {
+        currentRow = row;
+        selectedTier = 'MEDIUM';
+        document.getElementById('rvSuggestionId').value = row.id;
+        document.getElementById('rvQuestion').textContent = row.question || '(未记录)';
+        document.getElementById('rvAnswer').textContent = row.answer || '(未记录)';
+        document.getElementById('rvSuggestion').textContent = row.content || '';
+        document.getElementById('rvRating').textContent = row.ratingLabel || '';
+        document.getElementById('rvHitType').textContent = row.hitType
+            ? `· 命中类型 ${row.hitType}${row.retrievedCount != null ? ' · 检索到 ' + row.retrievedCount + ' 篇' : ''}`
+            : '';
+        document.getElementById('rvCustomPoints').value = '';
+        document.getElementById('rvRemark').value = row.reviewRemark || '';
+        renderTiers();
+
+        // 已审核过的只读展示，避免重复发放
+        const pending = row.status === 'PENDING';
+        document.getElementById('acceptBtn').disabled = !pending;
+        document.getElementById('rejectBtn').disabled = !pending;
+
+        if (!reviewModalInstance) {
+            reviewModalInstance = new bootstrap.Modal(document.getElementById('reviewModal'));
+        }
+        reviewModalInstance.show();
+    }
+
+    async function submitReview(action) {
+        const id = document.getElementById('rvSuggestionId').value;
+        const custom = document.getElementById('rvCustomPoints').value.trim();
+
+        if (action === 'ACCEPT') {
+            const pts = custom ? parseInt(custom, 10) : null;
+            const tierLabel = selectedTier ? tiers.find(t => t.value === selectedTier).label : '';
+            const amount = pts || (selectedTier ? tiers.find(t => t.value === selectedTier).points : 0);
+            const confirm = await Swal.fire({
+                title: '确认采纳？',
+                html: `将给 <strong>${esc(currentRow.realName || currentRow.username)}</strong> 发放 <strong>${amount}</strong> 积分${pts ? '（自定义）' : '（' + esc(tierLabel) + '）'}`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: '确认采纳',
+                cancelButtonText: '取消'
+            });
+            if (!confirm.isConfirmed) return;
+        }
+
+        try {
+            const resp = await fetch(`/api/admin/feedback/suggestions/${id}/review`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: action,
+                    tier: custom ? null : selectedTier,
+                    customPoints: custom ? parseInt(custom, 10) : null,
+                    remark: document.getElementById('rvRemark').value.trim()
+                })
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                Swal.fire('❌ 操作失败', data.errMessage || '', 'error');
+                return;
+            }
+            if (reviewModalInstance) reviewModalInstance.hide();
+            Swal.fire({
+                title: action === 'ACCEPT' ? `已采纳，发放 ${data.data.awardedPoints} 积分` : '已驳回',
+                icon: 'success',
+                timer: 1500,
+                showConfirmButton: false
+            });
+            loadSuggestions(currentPage);
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        }
+    }
+
+    // ================================================================
+    // 7. 事件绑定
+    // ================================================================
+    document.querySelectorAll('[data-status]').forEach(btn => {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('[data-status]').forEach(b => {
+                b.classList.remove('btn-primary');
+                b.classList.add('btn-outline-secondary');
+            });
+            this.classList.remove('btn-outline-secondary');
+            this.classList.add('btn-primary');
+            currentStatus = this.dataset.status;
+            loadSuggestions(1);
+        });
+    });
+
+    document.getElementById('suggestionBody').addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-review]');
+        if (!btn) return;
+        // 从当前页数据里找回来，避免再请求一次
+        const id = btn.dataset.review;
+        const row = lastRows.find(r => String(r.id) === String(id));
+        if (row) openReview(row);
+    });
+
+    document.getElementById('tierRow').addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-tier]');
+        if (!btn) return;
+        selectedTier = btn.dataset.tier;
+        document.getElementById('rvCustomPoints').value = '';
+        renderTiers();
+    });
+
+    document.getElementById('pagination').addEventListener('click', function (e) {
+        const a = e.target.closest('a[data-page]');
+        if (!a) return;
+        e.preventDefault();
+        loadSuggestions(parseInt(a.dataset.page, 10));
+    });
+
+    document.getElementById('acceptBtn').addEventListener('click', () => submitReview('ACCEPT'));
+    document.getElementById('rejectBtn').addEventListener('click', () => submitReview('REJECT'));
+
+    // ================================================================
+    // 8. 初始化
+    // ================================================================
+    loadSuggestions(1);
+</script>
+</body>
+</html>

@@ -35,7 +35,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // 放行所有页面和静态资源
-                        .requestMatchers("/", "/history", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/css/**", "/js/**", "/error").permitAll()
+                        .requestMatchers("/", "/history", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/feedback-review", "/css/**", "/js/**", "/error").permitAll()
                         // 放行认证 API（/api/test/** 已随测试接口一起删除）
                         .requestMatchers("/api/auth/**").permitAll()
                         // 放行 RAG 问答：允许未登录用户提问（按 IP 每日限额在

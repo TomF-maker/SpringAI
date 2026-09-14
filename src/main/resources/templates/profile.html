@@ -19,6 +19,29 @@
         @media (max-width: 991.98px) {
             .profile-card { padding: 20px; }
         }
+
+        /* ---------- 会员与积分卡片 ---------- */
+        .member-summary { margin-bottom: 16px; }
+        .member-points { font-size: 30px; font-weight: 700; color: #1a73e8; line-height: 1.1; }
+        .member-points small { font-size: 13px; font-weight: 400; color: #94a3b8; margin-left: 6px; }
+        .member-state { margin-top: 6px; font-size: 14px; color: #475569; }
+
+        .plan-list { display: flex; gap: 10px; flex-wrap: wrap; }
+        .plan-btn {
+            flex: 1 1 120px;
+            display: flex; flex-direction: column; align-items: center; gap: 2px;
+            padding: 12px 10px;
+            border: 1px solid #dbe3ec; border-radius: 12px;
+            background: #fff; cursor: pointer;
+            transition: border-color .15s, background .15s, transform .15s;
+        }
+        .plan-btn:hover:not(:disabled) {
+            border-color: #1a73e8; background: #f4f8ff; transform: translateY(-1px);
+        }
+        .plan-btn:disabled { cursor: not-allowed; opacity: .55; }
+        .plan-btn .p-label { font-size: 14px; font-weight: 600; color: #1e293b; }
+        .plan-btn .p-cost { font-size: 13px; font-weight: 600; color: #1a73e8; }
+        .plan-btn .p-hint { font-size: 11px; color: #94a3b8; text-align: center; }
     </style>
 </head>
 <body>
@@ -80,6 +103,23 @@
                     <button type="button" class="btn btn-outline-primary" id="changePwdBtn">修改密码</button>
                 </div>
             </form>
+        </div>
+
+        <!-- ========== 会员与积分 ========== -->
+        <div class="profile-card mt-4" id="membershipCard">
+            <h5 class="mb-3"><i class="bi bi-gem"></i> 会员与积分</h5>
+
+            <div class="member-summary">
+                <div class="member-points">
+                    <span id="memberPoints">-</span><small>积分</small>
+                </div>
+                <div class="member-state" id="memberState">加载中…</div>
+            </div>
+
+            <div class="plan-list" id="planList"></div>
+            <div class="text-muted small mt-3">
+                积分来自优化意见被采纳。会员有效期内提问不限次；非会员每日有免费额度。
+            </div>
         </div>
     </div>
 </div>
@@ -227,6 +267,126 @@
 
     // 初始化
     loadUserInfo();
+    loadMembership();
+
+    // ================================================================
+    // 会员与积分
+    // ================================================================
+    let membershipStatus = null;
+    let membershipPlans = [];
+    // 兑换进行中标记：CAS 只能挡住真并发，隔几秒的第二次点击是一次真实购买，
+    // 所以前端必须自己把按钮禁掉。
+    let exchanging = false;
+
+    function fmtDateTime(value) {
+        if (!value) return '-';
+        // 后端传的是无时区的 LocalDateTime，浏览器按本地时间解析。
+        // 前提是服务端统一用 Asia/Shanghai（见 AppTime）。
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? value
+            : d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0')
+              + '/' + String(d.getDate()).padStart(2, '0');
+    }
+
+    async function loadMembership() {
+        try {
+            const [statusResp, plansResp] = await Promise.all([
+                fetch('/api/membership/me'),
+                fetch('/api/membership/plans')
+            ]);
+            const status = await statusResp.json();
+            const plans = await plansResp.json();
+            if (!status.success) throw new Error(status.errMessage || '加载失败');
+            membershipStatus = status.data;
+            membershipPlans = plans.success ? plans.data : [];
+            renderMembership();
+        } catch (err) {
+            document.getElementById('memberState').textContent = '会员信息加载失败：' + err.message;
+        }
+    }
+
+    function renderMembership() {
+        const st = membershipStatus;
+        document.getElementById('memberPoints').textContent = st.points == null ? 0 : st.points;
+
+        let state;
+        if (st.active) {
+            state = st.memberType === 'PERMANENT'
+                ? '永久会员'
+                : (st.memberTypeLabel || '会员')
+                  + ' · 剩余 ' + (st.remainingDays == null ? '-' : st.remainingDays) + ' 天'
+                  + '（' + fmtDateTime(st.memberExpireAt) + ' 到期）';
+        } else {
+            state = '非会员 · 今日还剩 ' + st.freeRemaining + '/' + st.freeDailyLimit + ' 次免费提问';
+        }
+        document.getElementById('memberState').textContent = state;
+        renderPlans();
+    }
+
+    function renderPlans() {
+        const st = membershipStatus;
+        const points = st.points == null ? 0 : st.points;
+
+        document.getElementById('planList').innerHTML = membershipPlans.map(p => {
+            // 永久档 exchangeable=false，前端置灰；服务端也会拒绝（灰度只是 UX）
+            const affordable = !p.exchangeable || points >= p.pointsCost;
+            const disabled = !p.exchangeable || !affordable || exchanging;
+
+            let hint = p.durationLabel;
+            if (!p.exchangeable) hint = '仅运营发放';
+            else if (!affordable) hint = '还差 ' + (p.pointsCost - points) + ' 分';
+
+            return `<button type="button" class="plan-btn" data-plan="${p.type}" ${disabled ? 'disabled' : ''}>
+                        <span class="p-label">${p.label}</span>
+                        <span class="p-cost">${p.exchangeable ? p.pointsCost + ' 分' : '—'}</span>
+                        <span class="p-hint">${hint}</span>
+                    </button>`;
+        }).join('');
+    }
+
+    document.getElementById('planList').addEventListener('click', async function (e) {
+        const btn = e.target.closest('[data-plan]');
+        if (!btn || btn.disabled || exchanging) return;
+
+        const plan = membershipPlans.find(p => p.type === btn.dataset.plan);
+        if (!plan) return;
+
+        const confirm = await Swal.fire({
+            title: '确认兑换',
+            html: `将消耗 <strong>${plan.pointsCost}</strong> 积分兑换 <strong>${plan.label}</strong>（${plan.durationLabel}）<br>`
+                + `<small class="text-muted">当前积分 ${membershipStatus.points == null ? 0 : membershipStatus.points}</small>`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: '确认兑换',
+            cancelButtonText: '取消'
+        });
+        if (!confirm.isConfirmed) return;
+
+        exchanging = true;
+        renderPlans();
+        try {
+            const resp = await fetch('/api/membership/exchange', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plan: plan.type })
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                Swal.fire('❌ 兑换失败', data.errMessage || '', 'error');
+                return;
+            }
+            membershipStatus = data.data;
+            renderMembership();
+            // 余额变了，用户信息那边也刷新一下（否则会显示旧积分）
+            loadUserInfo();
+            Swal.fire({ title: '兑换成功', icon: 'success', timer: 1500, showConfirmButton: false });
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        } finally {
+            exchanging = false;
+            renderPlans();
+        }
+    });
 </script>
 </body>
 </html>

@@ -1,20 +1,27 @@
 package com.example.springai.service.impl;
 
+import com.example.springai.common.ErrorCode;
 import com.example.springai.entity.Conversation;
 import com.example.springai.entity.Message;
+import com.example.springai.exception.BizException;
 import com.example.springai.repository.ConversationRepository;
 import com.example.springai.service.ConversationServiceI;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @Service
 public class ConversationServiceImpl implements ConversationServiceI {
 
     @Autowired
     private ConversationRepository conversationRepository;
+
+    /** 归属不匹配时的统一文案：不区分"不存在"与"无权访问"。 */
+    private static final String NOT_FOUND_MESSAGE = "会话不存在";
 
     public Conversation createConversation(Long userId, String firstQuestion) {
         Conversation conv = new Conversation();
@@ -25,24 +32,67 @@ public class ConversationServiceImpl implements ConversationServiceI {
         return conversationRepository.save(conv);
     }
 
-    public Conversation addMessage(String conversationId, String role, String content) {
+    @Override
+    public Conversation addMessage(String conversationId, Long userId, String role, String content) {
         Conversation conv = conversationRepository.findById(conversationId)
-                .orElseThrow(() -> new RuntimeException("会话不存在"));
+                .orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE));
+        if (!isOwner(conv, userId)) {
+            log.warn("拒绝向非本人会话追加消息: conversationId={}, 请求人={}, 会话归属={}",
+                    conversationId, userId, conv.getUserId());
+            throw new BizException(ErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE);
+        }
         conv.getMessages().add(new Message(role, content, LocalDateTime.now()));
         conv.setUpdatedAt(LocalDateTime.now());
         return conversationRepository.save(conv);
     }
 
+    @Override
     public List<Conversation> getUserConversations(Long userId) {
         return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
     }
 
-    public Conversation getConversation(String id) {
-        return conversationRepository.findById(id).orElse(null);
+    @Override
+    public Conversation getConversation(String id, Long userId) {
+        Conversation conv = conversationRepository.findById(id).orElse(null);
+        if (!isOwner(conv, userId)) {
+            if (conv != null) {
+                log.warn("拒绝读取非本人会话: conversationId={}, 请求人={}, 会话归属={}",
+                        id, userId, conv.getUserId());
+            }
+            return null;
+        }
+        return conv;
     }
 
-    public void deleteConversation(String id) {
+    @Override
+    public boolean deleteConversation(String id, Long userId) {
+        Conversation conv = conversationRepository.findById(id).orElse(null);
+        if (!isOwner(conv, userId)) {
+            if (conv != null) {
+                log.warn("拒绝删除非本人会话: conversationId={}, 请求人={}, 会话归属={}",
+                        id, userId, conv.getUserId());
+            }
+            return false;
+        }
         conversationRepository.deleteById(id);
+        return true;
+    }
+
+    /**
+     * 归属判定。包级可见是为了能直接单测这条规则。
+     *
+     * <p>两种情况都判为<b>不通过</b>：
+     * <ul>
+     *   <li>{@code userId == null}（匿名调用）—— 匿名没有可靠身份，不该读到任何人的会话；</li>
+     *   <li>{@code conv.getUserId() == null}（无主会话）—— 这种会话没有归属人，
+     *       如果放行等于任何人都能读到，所以一律不通过。</li>
+     * </ul>
+     */
+    static boolean isOwner(Conversation conv, Long userId) {
+        if (conv == null || userId == null) {
+            return false;
+        }
+        return userId.equals(conv.getUserId());
     }
 
     private String generateTitle(String firstQuestion) {

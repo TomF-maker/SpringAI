@@ -153,6 +153,36 @@
             font-size: 14px;
         }
         .typing-indicator.active { display: block; }
+
+        /* ---------- 答案评价控件 ---------- */
+        .answer-feedback {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #e2e8f0;
+        }
+        .answer-feedback .fb-ask {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+        .answer-feedback .fb-ask.fb-error { color: #dc3545; }
+        .answer-feedback .fb-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+        .answer-feedback .fb-btn {
+            border: 1px solid #dbe3ec;
+            background: #fff;
+            color: #475569;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: border-color .15s, color .15s, background .15s;
+        }
+        .answer-feedback .fb-btn:hover {
+            border-color: #1a73e8;
+            color: #1a73e8;
+            background: #f4f8ff;
+        }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -178,11 +208,11 @@
         <!-- 顶部栏 -->
         <div th:replace="~{fragments/layout :: topbar('💬 智能问答')}"></div>
 
-        <!-- 游客提示：未登录时显示（由 JS 控制显隐） -->
-        <div id="guestBanner" class="guest-banner d-none">
+        <!-- 配额提示：游客与「已登录非会员」共用一条，文案由 JS 区分；会员不显示 -->
+        <div id="quotaBanner" class="guest-banner d-none">
             <i class="bi bi-info-circle"></i>
-            <span>游客模式 · 今日还可提问 <strong id="guestQuota">--</strong> 次</span>
-            <a href="/login" class="btn btn-sm btn-primary ms-auto">登录后不限次数</a>
+            <span id="quotaText">--</span>
+            <a id="quotaLink" href="/login" class="btn btn-sm btn-primary ms-auto">登录后不限次数</a>
         </div>
 
         <!-- 聊天容器 -->
@@ -238,28 +268,50 @@
         return originalFetch.apply(this, args);
     };
 
-    // 游客提示条 + 剩余次数
-    async function refreshGuestQuota() {
-        if (!isGuest) return;
-        const banner = document.getElementById('guestBanner');
+    // 配额提示条。
+    //
+    // 三种人三种待遇（以前这里第一行是 `if (!isGuest) return;`，
+    // 导致**已登录的非会员根本看不到自己还剩几次**）：
+    //   游客            → 「游客模式 · 今日还可提问 N 次」+ 去登录
+    //   已登录非会员    → 「非会员 · 今日还剩 N 次免费提问」+ 去开通会员
+    //   有效会员        → 不显示（不限次，不打扰）
+    async function refreshQuotaBanner() {
+        const banner = document.getElementById('quotaBanner');
         if (!banner) return;
-        banner.classList.remove('d-none');
         try {
             const resp = await fetch('/api/rag/chat/quota');
             const data = await resp.json();
-            if (data.success) {
-                if (!data.data.enabled) {
-                    // 免登录提问被关掉了，直接引导去登录
-                    document.getElementById('guestQuota').textContent = '0';
-                    return;
-                }
-                document.getElementById('guestQuota').textContent = data.data.remaining;
+            if (!data.success) {
+                banner.classList.add('d-none');
+                return;
             }
+            const q = data.data;
+
+            // 会员不限次；免登录提问被关掉时也不显示
+            if ((!q.anonymous && q.member) || !q.enabled) {
+                banner.classList.add('d-none');
+                return;
+            }
+
+            document.getElementById('quotaText').textContent = q.anonymous
+                ? '游客模式 · 今日还可提问 ' + q.remaining + ' 次'
+                : '非会员 · 今日还剩 ' + q.remaining + ' 次免费提问';
+
+            const link = document.getElementById('quotaLink');
+            if (q.anonymous) {
+                link.textContent = '登录后不限次数';
+                link.href = '/login';
+            } else {
+                link.textContent = '开通会员不限次';
+                link.href = '/profile';
+            }
+            banner.classList.remove('d-none');
         } catch (err) {
-            console.error('获取游客配额失败', err);
+            console.error('获取配额失败', err);
+            banner.classList.add('d-none');
         }
     }
-    refreshGuestQuota();
+    refreshQuotaBanner();
 
     // ================================================================
     // 2. 工具函数（提前定义，供后续使用）
@@ -309,7 +361,111 @@
 
         messagesContainer.insertBefore(messageDiv, typingIndicator);
         scrollToBottom();
-        return contentDiv;
+        // 返回外层 .message 元素：评价控件要挂在它上面，不只是内容区
+        return messageDiv;
+    }
+
+    // ================================================================
+    // 答案评价
+    // ================================================================
+    let ratingOptions = null;   // 五档选项，首次加载后缓存
+
+    async function loadRatingOptions() {
+        if (isGuest || ratingOptions) return;
+        try {
+            const resp = await fetch('/api/feedback/options');
+            const data = await resp.json();
+            if (data.success) ratingOptions = data.data;
+        } catch (err) {
+            console.error('加载评价选项失败', err);
+        }
+    }
+    loadRatingOptions();
+
+    /**
+     * 给一条 AI 回答挂上评价控件。
+     *
+     * 游客不挂：后端 /api/feedback 要求登录，挂上去点一下只会报错，
+     * 不如干脆不显示。
+     */
+    function attachFeedbackWidget(messageDiv, question, answer, questionLogId) {
+        if (isGuest || !messageDiv || !ratingOptions || !ratingOptions.length) return;
+        if (messageDiv.querySelector('.answer-feedback')) return;   // 防重复挂
+
+        const box = document.createElement('div');
+        box.className = 'answer-feedback';
+
+        const ask = document.createElement('span');
+        ask.className = 'fb-ask';
+        ask.textContent = '这个回答帮到你了吗？';
+        box.appendChild(ask);
+
+        const btnRow = document.createElement('div');
+        btnRow.className = 'fb-buttons';
+        ratingOptions.forEach(function (opt) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'fb-btn';
+            btn.textContent = opt.label;
+            btn.addEventListener('click', function () {
+                submitRating(box, opt, question, answer, questionLogId);
+            });
+            btnRow.appendChild(btn);
+        });
+        box.appendChild(btnRow);
+
+        messageDiv.appendChild(box);
+        scrollToBottom();
+    }
+
+    async function submitRating(box, option, question, answer, questionLogId) {
+        // 先收起按钮，避免重复点击
+        box.innerHTML = '<span class="fb-ask">正在提交…</span>';
+
+        // 低分档才追问原因 —— 打了"很有帮助"还弹框问哪里能改进是打扰
+        let suggestion = null;
+        if (option.needsSuggestion) {
+            const r = await Swal.fire({
+                title: '哪里可以做得更好？',
+                input: 'textarea',
+                inputPlaceholder: '比如：答非所问 / 信息过时 / 不够具体 / 有事实错误…',
+                inputAttributes: { maxlength: 1000 },
+                showCancelButton: true,
+                confirmButtonText: '提交',
+                cancelButtonText: '跳过',
+                inputValidator: function (v) {
+                    return (!v || v.trim().length < 5) ? '请至少写 5 个字，方便我们定位问题' : undefined;
+                }
+            });
+            if (r.isConfirmed && r.value) suggestion = r.value.trim();
+        }
+
+        try {
+            const resp = await fetch('/api/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    questionLogId: questionLogId,
+                    question: question,
+                    answer: answer,
+                    rating: option.value,
+                    suggestion: suggestion
+                })
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                box.innerHTML = '<span class="fb-ask fb-error"></span>';
+                box.firstChild.textContent = data.errMessage || '提交失败';
+                return;
+            }
+            box.innerHTML = '<span class="fb-ask"></span>';
+            box.firstChild.textContent = suggestion
+                ? '已提交，感谢你的意见！被采纳后会获得积分奖励 🎁'
+                : '已提交，谢谢！';
+        } catch (err) {
+            box.innerHTML = '<span class="fb-ask fb-error">提交失败，请稍后重试</span>';
+        }
+        scrollToBottom();
     }
 
     // ================================================================
@@ -377,7 +533,8 @@
             const data = await response.json();
             // 统一信封：成功取 data.data.answer，失败取 errMessage
             if (data.success) {
-                addMessage('ai', data.data.answer);
+                const aiDiv = addMessage('ai', data.data.answer);
+                attachFeedbackWidget(aiDiv, message, data.data.answer, data.data.questionLogId);
             } else {
                 addMessage('ai', `❌ 出错了：${data.errMessage || '未知错误'}`);
             }
@@ -426,6 +583,8 @@
             let buffer = '';
             let fullText = '';
             let hasReceivedData = false;
+            // 由 meta 帧带回来，评价时用它关联这次提问
+            let currentQuestionLogId = null;
             const startTime = new Date();
 
             // 按 SSE 规范解析：事件以空行分隔，同一事件内的多个 data: 行用 \n 连接。
@@ -445,17 +604,26 @@
                 const data = dataLines.join('\n');
                 if (data === '[DONE]') return;
 
-                // meta 帧：取出 conversationId，不显示在聊天界面
+                // meta 帧：只用来取元信息，绝不显示在聊天界面
                 if (data.startsWith('{')) {
                     try {
                         const parsed = JSON.parse(data);
-                        if (parsed.type === 'meta' && parsed.conversationId) {
-                            conversationId = parsed.conversationId;
-                            // 更新 URL 参数（刷新页面后保留）
-                            const newUrl = new URL(window.location);
-                            newUrl.searchParams.set('conversationId', conversationId);
-                            window.history.replaceState({}, '', newUrl);
-                            console.log('📌 获取到 conversationId:', conversationId);
+                        // 判定条件只看 type。以前还要求 conversationId 非空，
+                        // 而匿名提问时它是 null —— 于是 meta 帧会掉到下面当正文渲染，
+                        // 用户就会看到一坨 JSON。
+                        if (parsed.type === 'meta') {
+                            if (parsed.conversationId) {
+                                conversationId = parsed.conversationId;
+                                // 更新 URL 参数（刷新页面后保留）
+                                const newUrl = new URL(window.location);
+                                newUrl.searchParams.set('conversationId', conversationId);
+                                window.history.replaceState({}, '', newUrl);
+                                console.log('📌 获取到 conversationId:', conversationId);
+                            }
+                            // 评价要挂到这次提问上，靠它关联
+                            if (parsed.questionLogId) {
+                                currentQuestionLogId = parsed.questionLogId;
+                            }
                             return;
                         }
                     } catch (_) {
@@ -494,6 +662,8 @@
             if (!hasReceivedData) {
                 contentDiv.textContent = '⚠️ 未收到有效回复，请重试。';
                 timeDiv.textContent = getCurrentTime();
+            } else {
+                attachFeedbackWidget(aiMessageDiv, message, fullText, currentQuestionLogId);
             }
 
             scrollToBottom();
@@ -532,8 +702,8 @@
             sendBtn.disabled = false;
             messageInput.disabled = false;
             messageInput.focus();
-            // 游客模式下每次问完刷新一下剩余次数
-            refreshGuestQuota();
+            // 每次问完刷新剩余次数（游客与非会员都适用）
+            refreshQuotaBanner();
         }
     }
 

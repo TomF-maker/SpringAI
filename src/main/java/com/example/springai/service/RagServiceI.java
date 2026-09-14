@@ -13,27 +13,72 @@ import reactor.core.publisher.Flux;
 public interface RagServiceI {
 
     /**
+     * 一次问答的结果。
+     *
+     * <p>除了答案本身，还把这次提问在 {@code kb_question_log} 里的 id 带出来 ——
+     * 前端提交答案评价时要靠它关联到具体是哪一次提问。
+     * 有了这个关联才能分析"哪类问题容易被打低分"，否则只知道"有人不满意"。
+     * 埋点表不可用/写入失败时为 null。
+     */
+    class Answer {
+        private final Long questionLogId;
+        private final String answer;
+
+        public Answer(Long questionLogId, String answer) {
+            this.questionLogId = questionLogId;
+            this.answer = answer;
+        }
+
+        public Long getQuestionLogId() {
+            return questionLogId;
+        }
+
+        public String getAnswer() {
+            return answer;
+        }
+    }
+
+    /** 流式问答的结果：日志 id + 内容流。 */
+    class AnswerStream {
+        private final Long questionLogId;
+        private final Flux<String> content;
+
+        public AnswerStream(Long questionLogId, Flux<String> content) {
+            this.questionLogId = questionLogId;
+            this.content = content;
+        }
+
+        public Long getQuestionLogId() {
+            return questionLogId;
+        }
+
+        public Flux<String> getContent() {
+            return content;
+        }
+    }
+
+    /**
      * 基于知识库的智能问答
      *
      * @param question 用户问题
-     * @return 基于文档内容的回答
+     * @return 基于文档内容的回答，附带这次提问的埋点 id
      */
-    String chatWithDocument(String question);
+    Answer chatWithDocument(String question);
 
     /**
      * 基于知识库的智能问答（流式输出）
      *
      * @param question       用户问题
-     * @param conversationId 所属会话 id，用于提问埋点；非流式路径没有会话，传 null
-     * @return 流式返回的回答片段
+     * @param conversationId 所属会话 id，用于提问埋点；匿名或非流式路径没有会话，传 null
+     * @return 日志 id + 流式返回的回答片段
      */
-    Flux<String> chatWithDocumentStream(String question, String conversationId);
+    AnswerStream chatWithDocumentStream(String question, String conversationId);
 
     /**
      * 支持工具调用的问答（手动解析 JSON）
      *
      * @param userMessage 用户问题
-     * @return 最终回答
+     * @return 最终回答，附带这次提问的埋点 id
      */
-    String chatWithTool(String userMessage);
+    Answer chatWithTool(String userMessage);
 }

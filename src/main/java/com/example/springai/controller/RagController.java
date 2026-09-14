@@ -2,7 +2,10 @@ package com.example.springai.controller;
 
 import com.example.springai.common.ErrorCode;
 import com.example.springai.exception.BizException;
+import com.example.springai.dto.MembershipStatusDTO;
+import com.example.springai.service.MembershipServiceI;
 import com.example.springai.service.impl.AnonymousQuestionLimiter;
+import com.example.springai.service.impl.ChatAccessGuard;
 import com.example.springai.utils.IpUtils;
 import com.example.springai.common.Response;
 import com.example.springai.entity.Conversation;
@@ -51,7 +54,12 @@ public class RagController {
     @Autowired
     private QuestionLogServiceI questionLogService;
     @Autowired
+    private ChatAccessGuard chatAccessGuard;
+    /** /chat/quota 里要读匿名额度的配置与剩余值，所以这里仍然直接用。 */
+    @Autowired
     private AnonymousQuestionLimiter anonymousQuestionLimiter;
+    @Autowired
+    private MembershipServiceI membershipService;
     @Autowired
     private IpUtils ipUtils;
 
@@ -64,6 +72,24 @@ public class RagController {
      * 返回的是 <b>true</b> —— 只看 isAuthenticated() 会把匿名当成已登录，
      * 配额就永远不会扣。
      */
+    /**
+     * 取当前登录用户；未登录或用户已被删除时返回 null。
+     *
+     * <p>调用方必须判 null —— 原来流式接口是直接 {@code .getId()}，
+     * 用户被删但 token 没过期时就 NPE，而且是在 {@code return Flux} 之前抛，
+     * 结果变成 JSON 错误体污染 SSE。
+     */
+    private SysUser currentUserOrNull(boolean anonymous) {
+        if (anonymous) {
+            return null;
+        }
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return null;
+        }
+        return userServiceI.findByUsernameOrEmail(auth.getName());
+    }
+
     private boolean isAnonymous() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return auth == null
@@ -80,13 +106,32 @@ public class RagController {
     @GetMapping("/chat/quota")
     public Response<Map<String, Object>> quota(HttpServletRequest request) {
         boolean anonymous = isAnonymous();
+        SysUser currentUser = currentUserOrNull(anonymous);
+
         Map<String, Object> data = new HashMap<>();
         data.put("anonymous", anonymous);
-        data.put("enabled", anonymousQuestionLimiter.isEnabled());
-        data.put("limit", anonymousQuestionLimiter.getPerIpDailyLimit());
-        data.put("remaining", anonymous
-                ? anonymousQuestionLimiter.remaining(ipUtils.getClientIp(request))
-                : -1);
+
+        if (anonymous) {
+            data.put("enabled", anonymousQuestionLimiter.isEnabled());
+            data.put("limit", anonymousQuestionLimiter.getPerIpDailyLimit());
+            data.put("remaining", anonymousQuestionLimiter.remaining(ipUtils.getClientIp(request)));
+            data.put("member", false);
+            return Response.success(data);
+        }
+
+        // 已登录：返回会员状态与（非会员的）免费额度，前端直接拿这些渲染横幅
+        MembershipStatusDTO status = membershipService.getStatus(
+                currentUser == null ? null : currentUser.getId());
+        data.put("member", status.isActive());
+        if (status.isActive()) {
+            data.put("enabled", false);      // 会员不限次，前端据此不显示"剩余 N 条"
+            data.put("limit", null);
+            data.put("remaining", null);
+        } else {
+            data.put("enabled", true);
+            data.put("limit", status.getFreeDailyLimit());
+            data.put("remaining", status.getFreeRemaining());
+        }
         return Response.success(data);
     }
 
@@ -98,31 +143,35 @@ public class RagController {
     public Response<Map<String, Object>> chat(@RequestParam String question,
                                               HttpServletRequest request) {
         log.info("📨 收到RAG问答请求: {}", question);
-        // 匿名调用先扣配额；超限会抛 BizException，由全局处理器转成 200 + errCode 429
-        if (isAnonymous()) {
-            anonymousQuestionLimiter.checkAndRecord(ipUtils.getClientIp(request));
-        }
+
+        // 准入判定必须在 try **之外**：放进去会被下面的 catch (Exception) 吞成
+        // "处理失败"，还会往 kb_question_log 写一条假的 HIT_ERROR 埋点。
+        // 超限时抛 BizException，由全局处理器转成 200 + errCode 429。
+        boolean anonymous = isAnonymous();
+        SysUser currentUser = currentUserOrNull(anonymous);
+        chatAccessGuard.checkAndRecord(anonymous, currentUser, ipUtils.getClientIp(request));
+
         try {
-            String answer;
+            RagServiceI.Answer result;
             if (question.contains("天气") || question.contains("新闻") || question.contains("热点")) {
-                answer = ragService.chatWithTool(question);
+                result = ragService.chatWithTool(question);
             } else {
-                answer = ragService.chatWithDocument(question);
+                result = ragService.chatWithDocument(question);
             }
             Map<String, Object> data = new HashMap<>();
             data.put("question", question);
-            data.put("answer", answer);
+            data.put("answer", result.getAnswer());
+            // 前端提交答案评价时要靠它关联到这次提问
+            data.put("questionLogId", result.getQuestionLogId());
             return Response.success(data);
         } catch (Exception e) {
             log.error("❌ RAG问答失败: {}", e.getMessage(), e);
-            // 失败也要留痕，否则看板上看不到任何异常，问题会被静默吞掉
+            // 失败也要留痕，否则看板上看不到任何异常，问题会被静默吞掉。
+            // 复用上面已经查到的 currentUser —— 失败路径反而比原来少查一次库。
             try {
-                SysUser user = userServiceI.findByUsernameOrEmail(
-                        SecurityContextHolder.getContext().getAuthentication() == null
-                                ? "" : SecurityContextHolder.getContext().getAuthentication().getName());
                 questionLogService.record(question,
-                        user == null ? null : user.getId(),
-                        user == null ? null : user.getDepartmentId(),
+                        currentUser == null ? null : currentUser.getId(),
+                        currentUser == null ? null : currentUser.getDepartmentId(),
                         null, KbQuestionLog.HIT_ERROR, 0, null);
             } catch (Throwable t) {
                 log.warn("异常埋点写入失败: {}", t.getMessage());
@@ -158,41 +207,67 @@ public class RagController {
         }
 
         boolean anonymous = isAnonymous();
-        if (anonymous) {
-            // 匿名配额超限也只能走 SSE（本方法返回 Flux，包不了 Response 信封），
-            // 沿用上面鉴权失败的同一写法
-            try {
-                anonymousQuestionLimiter.checkAndRecord(ipUtils.getClientIp(request));
-            } catch (BizException e) {
-                return Flux.just(e.getMessage(), "[DONE]");
-            }
+        // 已登录的先取出用户：下面的完成回调跑在 reactor 线程上，
+        // 那时 SecurityContextHolder 已经是空的，必须提前捕获。
+        // 顺带修掉一个既有隐患 —— 原来这里直接 .getId()，用户被删但 token 没过期时
+        // 会 NPE，而且是在 return Flux 之前抛，结果变成 JSON 错误体污染 SSE。
+        final SysUser currentUser = currentUserOrNull(anonymous);
+        if (!anonymous && currentUser == null) {
+            return Flux.just("用户不存在，请重新登录", "[DONE]");
+        }
+
+        // 准入判定：匿名按 IP、会员放行、非会员按每日免费额度。超限也只能走 SSE
+        // （本方法返回 Flux，包不了 Response 信封），沿用上面鉴权失败的同一写法。
+        try {
+            chatAccessGuard.checkAndRecord(anonymous, currentUser, ipUtils.getClientIp(request));
+        } catch (BizException e) {
+            return Flux.just(e.getMessage(), "[DONE]");
         }
 
         log.info("📨 收到流式RAG问答请求: {}（{}）", question, anonymous ? "匿名" : "已登录");
 
-        // 2. 处理会话ID。匿名用户不做会话持久化（MongoDB 里不留无主会话），
-        //    所以这里必须返回 null，且下面所有写会话的地方都要跳过。
-        final String finalConversationId = anonymous
-                ? null
-                : resolveConversationId(conversationId, question, authentication);
+        // 2. 处理会话ID。匿名用户不做会话持久化（MongoDB 里不留无主会话），所以直接置空。
+        final Long currentUserId = currentUser == null ? null : currentUser.getId();
 
-        // 3. 准备AI回答的收集器
+        final String finalConversationId;
+        if (anonymous) {
+            finalConversationId = null;
+        } else {
+            try {
+                finalConversationId = resolveConversationId(conversationId, question, currentUserId);
+            } catch (BizException e) {
+                // 会话不存在或不属于该用户。本方法返回 Flux，不能把异常抛出去 ——
+                // 那样客户端在流式响应里会收到一个 JSON 错误体，解析直接乱掉。
+                // 沿用本项目既有的写法：把消息当成一帧内容发出去。
+                log.warn("会话校验未通过: {}", e.getMessage());
+                return Flux.just(e.getMessage(), "[DONE]");
+            }
+        }
+
+        // 3. 先把流和埋点 id 一起拿到，**再**拼 meta 帧 ——
+        //    顺序反过来 meta 帧里就拿不到 questionLogId 了（它是在 service 里落库产生的）。
+        RagServiceI.AnswerStream answerStream =
+                ragService.chatWithDocumentStream(question, finalConversationId);
+
+        // 4. 准备AI回答的收集器
         StringBuilder aiAnswer = new StringBuilder();
 
-        // 4. 构建流式响应
-        //    先发送一个元数据消息（包含 conversationId 与是否匿名），再发送实际的回答流。
+        // 5. 构建流式响应
+        //    先发送一个元数据消息（包含 conversationId、是否匿名、埋点 id），再发送回答流。
         //    同样只给"内容"，SSE 的 data: 前缀与空行由 Spring 负责。
         Flux<String> metaDataFlux = Flux.just(
                 "{\"type\":\"meta\",\"conversationId\":"
                         + (finalConversationId == null ? "null" : "\"" + finalConversationId + "\"")
-                        + ",\"anonymous\":" + anonymous + "}"
+                        + ",\"anonymous\":" + anonymous
+                        + ",\"questionLogId\":" + answerStream.getQuestionLogId() + "}"
         );
 
-        Flux<String> aiStream = ragService.chatWithDocumentStream(question, finalConversationId)
+        Flux<String> aiStream = answerStream.getContent()
                 .doOnNext(chunk -> aiAnswer.append(chunk))
                 .doOnComplete(() -> {
                     if (finalConversationId != null) {
-                        conversationService.addMessage(finalConversationId, "assistant", aiAnswer.toString());
+                        conversationService.addMessage(finalConversationId, currentUserId,
+                                "assistant", aiAnswer.toString());
                         log.info("✅ AI回答已保存，会话ID: {}", finalConversationId);
                     }
                 })
@@ -202,17 +277,20 @@ public class RagController {
         return Flux.concat(metaDataFlux, aiStream);
     }
 
-    /** 取出或新建会话，并把用户提问写入会话。仅已登录用户调用。 */
-    private String resolveConversationId(String conversationId, String question,
-                                         Authentication authentication) {
+    /**
+     * 取出或新建会话，并把用户提问写入会话。仅已登录用户调用。
+     *
+     * <p>传入已有 conversationId 时，归属校验在 service 层做 —— 不属于该用户会抛
+     * {@link BizException}，由调用方转成 SSE 错误帧。
+     */
+    private String resolveConversationId(String conversationId, String question, Long userId) {
         if (conversationId != null && !conversationId.isEmpty()) {
-            conversationService.addMessage(conversationId, "user", question);
+            conversationService.addMessage(conversationId, userId, "user", question);
             log.info("🔁 使用已有会话，ID: {}", conversationId);
             return conversationId;
         }
-        SysUser user = userServiceI.findByUsernameOrEmail(authentication.getName());
-        Conversation conv = conversationService.createConversation(user.getId(), question);
-        conversationService.addMessage(conv.getId(), "user", question);
+        Conversation conv = conversationService.createConversation(userId, question);
+        conversationService.addMessage(conv.getId(), userId, "user", question);
         log.info("✅ 创建新会话，ID: {}", conv.getId());
         return conv.getId();
     }

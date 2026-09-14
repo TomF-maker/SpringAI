@@ -11,6 +11,8 @@ public class UserInfoDTO {
     private String phone;
     private String realName;
     private String avatar;
+    /** 积分余额。 */
+    private Integer points;
     private Long departmentId;
     private String departmentName;
     private Integer userType;

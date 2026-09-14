@@ -62,7 +62,7 @@ public class RagServiceImpl implements RagServiceI {
      * 阻塞式 RAG 问答
      */
     @Override
-    public String chatWithDocument(String question) {
+    public Answer chatWithDocument(String question) {
         log.info("🔍 收到RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
 
@@ -72,18 +72,18 @@ public class RagServiceImpl implements RagServiceI {
         String localAnswer = localKnowledgeService.match(question);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
-            recordQuestion(question, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
+            Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
                     System.currentTimeMillis() - startTime);
-            return localAnswer;
+            return new Answer(logId, localAnswer);
         }
 
         // 1. 检索相关文档片段
         List<Document> relevantDocs = retrieveDocuments(question, user);
 
         if (relevantDocs.isEmpty()) {
-            recordQuestion(question, user, null, KbQuestionLog.HIT_MISS, 0, null,
+            Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_MISS, 0, null,
                     System.currentTimeMillis() - startTime);
-            return "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。";
+            return new Answer(logId, "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。");
         }
 
         // 2. 构建 Prompt
@@ -97,17 +97,18 @@ public class RagServiceImpl implements RagServiceI {
                 .content();
 
         long elapsed = System.currentTimeMillis() - startTime;
-        recordQuestion(question, user, null, KbQuestionLog.HIT_DOC, relevantDocs.size(), null, elapsed);
+        Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_DOC,
+                relevantDocs.size(), null, elapsed);
         log.info("✅ RAG问答完成，耗时: {}ms", elapsed);
 
-        return answer;
+        return new Answer(logId, answer);
     }
 
     /**
      * 流式 RAG 问答
      */
     @Override
-    public Flux<String> chatWithDocumentStream(String question, String conversationId) {
+    public AnswerStream chatWithDocumentStream(String question, String conversationId) {
         log.info("🔍 收到流式RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
 
@@ -127,7 +128,7 @@ public class RagServiceImpl implements RagServiceI {
             Long logId = questionLogService.record(question, userId, departmentId, convId,
                     KbQuestionLog.HIT_LOCAL, 0, null);
             questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
-            return Flux.just(localAnswer);
+            return new AnswerStream(logId, Flux.just(localAnswer));
         }
 
         // 1. 检索相关文档片段（阻塞操作，但很快）
@@ -137,7 +138,8 @@ public class RagServiceImpl implements RagServiceI {
             Long logId = questionLogService.record(question, userId, departmentId, convId,
                     KbQuestionLog.HIT_MISS, 0, null);
             questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
-            return Flux.just("抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。");
+            return new AnswerStream(logId,
+                    Flux.just("抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。"));
         }
 
         // 2. 构建 Prompt
@@ -149,7 +151,7 @@ public class RagServiceImpl implements RagServiceI {
                 KbQuestionLog.HIT_DOC, relevantDocs.size(), null);
 
         // 4. 流式调用大模型
-        return chatClientBuilder.build()
+        Flux<String> content = chatClientBuilder.build()
                 .prompt()
                 .user(prompt)
                 .stream()
@@ -166,6 +168,7 @@ public class RagServiceImpl implements RagServiceI {
                         questionLogService.markStatus(logId, KbQuestionLog.STATUS_CANCELLED);
                     }
                 });
+        return new AnswerStream(logId, content);
     }
 
     /**
@@ -174,7 +177,7 @@ public class RagServiceImpl implements RagServiceI {
      * @param userMessage 用户问题
      * @return 最终回答
      */
-    public String chatWithTool(String userMessage) {
+    public Answer chatWithTool(String userMessage) {
         log.info("🔧 进入工具调用模式，问题: {}", userMessage);
         // 这个方法此前完全没有计时，补上才能统计工具类问答的耗时
         long startTime = System.currentTimeMillis();
@@ -184,9 +187,9 @@ public class RagServiceImpl implements RagServiceI {
         String localAnswer = localKnowledgeService.match(userMessage);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
-            recordQuestion(userMessage, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
+            Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
                     System.currentTimeMillis() - startTime);
-            return localAnswer;
+            return new Answer(logId, localAnswer);
         }
 
         // 1. 构造 Prompt，要求模型如果认为需要工具，则以 JSON 格式返回
@@ -234,15 +237,15 @@ public class RagServiceImpl implements RagServiceI {
                     .call()
                     .content();
 
-            recordQuestion(userMessage, user, null, KbQuestionLog.HIT_TOOL, 0,
+            Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_TOOL, 0,
                     extractToolName(firstResponse), System.currentTimeMillis() - startTime);
-            return answer;
+            return new Answer(logId, answer);
         }
 
         // 如果不是工具调用，直接返回
-        recordQuestion(userMessage, user, null, KbQuestionLog.HIT_DOC, 0, null,
+        Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_DOC, 0, null,
                 System.currentTimeMillis() - startTime);
-        return firstResponse;
+        return new Answer(logId, firstResponse);
     }
 
     /** 从工具调用的 JSON 里取出工具名，取不到就返回 null。 */
@@ -268,7 +271,7 @@ public class RagServiceImpl implements RagServiceI {
     /**
      * 记录一次提问。任何失败都只记日志，绝不影响问答本身。
      */
-    private void recordQuestion(String question, SysUser user, String conversationId,
+    private Long recordQuestion(String question, SysUser user, String conversationId,
                                 String hitType, int retrievedCount, String toolName, long elapsedMs) {
         try {
             Long logId = questionLogService.record(question,
@@ -276,8 +279,11 @@ public class RagServiceImpl implements RagServiceI {
                     user == null ? null : user.getDepartmentId(),
                     conversationId, hitType, retrievedCount, toolName);
             questionLogService.markCompleted(logId, elapsedMs);
+            // 把 id 带出去：前端提交答案评价时要靠它关联到这次提问
+            return logId;
         } catch (Throwable t) {
             log.warn("提问埋点失败: {}", t.getMessage());
+            return null;
         }
     }
 

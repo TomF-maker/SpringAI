@@ -66,4 +66,9 @@ public class PageController {
     public String history() {
         return "history";
     }
+
+    @GetMapping("/feedback-review")
+    public String feedbackReview() {
+        return "feedback-review";
+    }
 }
