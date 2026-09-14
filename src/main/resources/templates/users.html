@@ -171,11 +171,13 @@
             const resp = await fetch('/api/users?' + params.toString());
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
-            if (!data.success) throw new Error(data.message || '加载失败');
+            if (!data.success) throw new Error(data.errMessage || '加载失败');
 
-            renderTable(data.data || []);
-            renderPagination(data.total || 0, data.page || 1, data.size || pageSize);
-            currentPage = data.page || 1;
+            // 统一信封 + 分页：列表与分页信息都在 data.data 里（PageResult）
+            const pageResult = data.data || {};
+            renderTable(pageResult.records || []);
+            renderPagination(pageResult.total || 0, pageResult.page || 1, pageResult.size || pageSize);
+            currentPage = pageResult.page || 1;
         } catch (err) {
             console.error('加载用户列表失败:', err);
             document.getElementById('userTableBody').innerHTML =
@@ -320,7 +322,7 @@
                 Swal.fire('✅ 操作成功', `用户已${action}`, 'success');
                 loadUsers(currentPage);
             } else {
-                Swal.fire('❌ 操作失败', data.message, 'error');
+                Swal.fire('❌ 操作失败', data.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');
@@ -348,12 +350,12 @@
             if (data.success) {
                 await Swal.fire({
                     title: '✅ 重置成功',
-                    html: `新密码：<strong>${data.newPassword}</strong><br><small>请复制后安全告知用户。</small>`,
+                    html: `新密码：<strong>${data.data.newPassword}</strong><br><small>请复制后安全告知用户。</small>`,
                     icon: 'success'
                 });
                 loadUsers(currentPage);
             } else {
-                Swal.fire('❌ 重置失败', data.message, 'error');
+                Swal.fire('❌ 重置失败', data.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');
@@ -371,7 +373,8 @@
             // 获取所有角色
             const rolesResp = await fetch('/api/roles');
             const rolesData = await rolesResp.json();
-            const roles = Array.isArray(rolesData) ? rolesData : (rolesData.data || []);
+            // 统一信封后不再需要兼容裸数组
+            const roles = rolesData.data || [];
 
             // 获取用户当前角色
             const userResp = await fetch(`/api/users/${userId}`);
@@ -430,7 +433,7 @@
                 if (roleModalInstance) roleModalInstance.hide();
                 loadUsers(currentPage);
             } else {
-                alert('❌ 分配失败：' + data.message);
+                alert('❌ 分配失败：' + data.errMessage);
             }
         } catch (err) {
             alert('❌ 请求失败：' + err.message);

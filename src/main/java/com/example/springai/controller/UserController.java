@@ -1,8 +1,11 @@
 package com.example.springai.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.springai.common.PageResult;
+import com.example.springai.common.Response;
 import com.example.springai.dto.*;
 import com.example.springai.entity.SysUser;
+import com.example.springai.service.LoginSecurityServiceI;
 import com.example.springai.service.UserServiceI;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,70 +16,69 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 用户管理。
+ *
+ * <p><b>注意这里没有类级别的 {@code @PreAuthorize}</b>：以前类上有
+ * {@code @PreAuthorize("hasRole('ADMIN')")}，而它连带把 {@code /api/users/me}
+ * 和 {@code /me/password} 也限成了管理员 —— 但侧边栏的"个人中心"对所有用户可见，
+ * 所以普通用户点个人中心必然报错。现在改成逐方法标注：
+ * 管理类接口（列表/详情/改状态/分配角色/重置密码/解锁/查员工）要求 ADMIN，
+ * {@code /me*} 只要求已登录（由 {@code SecurityConfig} 的
+ * {@code anyRequest().authenticated()} 兜住）。
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/users")
-@PreAuthorize("hasRole('ADMIN')")  // 类级别控制，所有方法需 ADMIN 角色
 public class UserController {
 
     @Autowired
     private UserServiceI userService;
 
     @Autowired
-    private com.example.springai.service.LoginSecurityServiceI loginSecurityService;
+    private LoginSecurityServiceI loginSecurityService;
+
+    // ==================== 以下要求 ADMIN ====================
 
     @GetMapping
-    public Map<String, Object> listUsers(
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<PageResult<UserListDTO>> listUsers(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status,
             @RequestParam(required = false) Long departmentId) {
-        Page<UserListDTO> pageResult = userService.listUsers(page, size, keyword, status, departmentId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", pageResult.getRecords());
-        result.put("total", pageResult.getTotal());
-        result.put("page", pageResult.getCurrent());
-        result.put("size", pageResult.getSize());
-        return result;
+        Page<UserListDTO> p = userService.listUsers(page, size, keyword, status, departmentId);
+        return Response.success(PageResult.of(p.getRecords(), p.getTotal(), p.getCurrent(), p.getSize()));
     }
 
     @GetMapping("/{id:\\d+}")
-    public Map<String, Object> getUserDetail(@PathVariable Long id) {
-        UserDetailDTO detail = userService.getUserDetail(id);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", detail);
-        return result;
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<UserDetailDTO> getUserDetail(@PathVariable Long id) {
+        return Response.success(userService.getUserDetail(id));
     }
 
     @PutMapping("/{id}/status")
-    public Map<String, Object> updateStatus(@PathVariable Long id, @RequestBody UpdateStatusRequest request) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<Void> updateStatus(@PathVariable Long id, @RequestBody UpdateStatusRequest request) {
         userService.updateStatus(id, request.getStatus());
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "状态更新成功");
-        return result;
+        return Response.success();
     }
 
     @PutMapping("/{id}/roles")
-    public Map<String, Object> assignRoles(@PathVariable Long id, @RequestBody AssignRoleRequest request) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<Void> assignRoles(@PathVariable Long id, @RequestBody AssignRoleRequest request) {
         userService.assignRoles(id, request.getRoleIds());
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "角色分配成功");
-        return result;
+        return Response.success();
     }
 
     @PutMapping("/{id}/password/reset")
-    public Map<String, Object> resetPassword(@PathVariable Long id) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<Map<String, Object>> resetPassword(@PathVariable Long id) {
         String newPassword = userService.resetPassword(id);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "密码已重置");
-        result.put("newPassword", newPassword);  // 返回明文密码
-        return result;
+        Map<String, Object> data = new HashMap<>();
+        data.put("newPassword", newPassword);   // 返回明文密码，供管理员转告用户
+        return Response.success(data);
     }
 
     /**
@@ -86,61 +88,43 @@ public class UserController {
      * 之后该用户下一次登录会被当作首次登录直接放行。
      */
     @PutMapping("/{id}/unlock-login")
-    public Map<String, Object> unlockLogin(@PathVariable Long id) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<Void> unlockLogin(@PathVariable Long id) {
         loginSecurityService.resetUser(id);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "已清除该用户的异地登录状态");
-        return result;
-    }
-
-    @GetMapping("/me")
-    public Map<String, Object> getCurrentUser(Authentication authentication) {
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username); // 需要新增此方法
-        UserInfoDTO info = userService.getCurrentUserInfo(user.getId());
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", info);
-        return result;
-    }
-
-    @PutMapping("/me")
-    public Map<String, Object> updateUserInfo(Authentication authentication,
-                                              @RequestBody UpdateUserInfoRequest request) {
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username);
-        userService.updateUserInfo(user.getId(), request);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "信息更新成功");
-        return result;
-    }
-
-    @PutMapping("/me/password")
-    public Map<String, Object> changePassword(Authentication authentication,
-                                              @RequestBody ChangePasswordRequest request) {
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username);
-        userService.changePassword(user.getId(), request);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "密码修改成功");
-        return result;
+        return Response.success();
     }
 
     @GetMapping("/employees")
-    public Map<String, Object> searchEmployees(
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<PageResult<UserListDTO>> searchEmployees(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword) {
-        Page<UserListDTO> pageResult = userService.searchEmployees(page, size, keyword);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", pageResult.getRecords());
-        result.put("total", pageResult.getTotal());
-        result.put("page", pageResult.getCurrent());
-        result.put("size", pageResult.getSize());
-        return result;
+        Page<UserListDTO> p = userService.searchEmployees(page, size, keyword);
+        return Response.success(PageResult.of(p.getRecords(), p.getTotal(), p.getCurrent(), p.getSize()));
+    }
+
+    // ==================== 以下只要求已登录 ====================
+
+    @GetMapping("/me")
+    public Response<UserInfoDTO> getCurrentUser(Authentication authentication) {
+        SysUser user = userService.findByUsernameOrEmail(authentication.getName());
+        return Response.success(userService.getCurrentUserInfo(user.getId()));
+    }
+
+    @PutMapping("/me")
+    public Response<Void> updateUserInfo(Authentication authentication,
+                                         @RequestBody UpdateUserInfoRequest request) {
+        SysUser user = userService.findByUsernameOrEmail(authentication.getName());
+        userService.updateUserInfo(user.getId(), request);
+        return Response.success();
+    }
+
+    @PutMapping("/me/password")
+    public Response<Void> changePassword(Authentication authentication,
+                                         @RequestBody ChangePasswordRequest request) {
+        SysUser user = userService.findByUsernameOrEmail(authentication.getName());
+        userService.changePassword(user.getId(), request);
+        return Response.success();
     }
 }

@@ -1,6 +1,9 @@
 package com.example.springai.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.springai.common.ErrorCode;
+import com.example.springai.common.PageResult;
+import com.example.springai.common.Response;
 import com.example.springai.dto.DocumentListDTO;
 import com.example.springai.dto.DocumentUploadDTO;
 import com.example.springai.dto.UrlUploadRequest;
@@ -37,38 +40,32 @@ public class DocumentController {
 
     // ==================== 原有上传接口（兼容） ====================
     @PostMapping("/upload")
-    public Map<String, Object> uploadDocument(@RequestParam("file") MultipartFile file) {
-        Map<String, Object> response = new HashMap<>();
-        try {
-            if (file.isEmpty()) {
-                response.put("success", false);
-                response.put("message", "文件不能为空");
-                return response;
-            }
-            String fileName = file.getOriginalFilename();
-            if (fileName == null ||
-                    !(fileName.toLowerCase().endsWith(".pdf") ||
-                            fileName.toLowerCase().endsWith(".doc") ||
-                            fileName.toLowerCase().endsWith(".docx"))) {
-                response.put("success", false);
-                response.put("message", "仅支持 PDF、DOC、DOCX 格式文件");
-                return response;
-            }
-            int chunkCount = documentService.processDocument(file);
-            response.put("success", true);
-            response.put("message", "文档处理成功");
-            response.put("fileName", fileName);
-            response.put("chunkCount", chunkCount);
-        } catch (IOException e) {
-            response.put("success", false);
-            response.put("message", "文档处理失败: " + e.getMessage());
+    public Response<Map<String, Object>> uploadDocument(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            return Response.fail(ErrorCode.BAD_REQUEST, "文件不能为空");
         }
-        return response;
+        String fileName = file.getOriginalFilename();
+        if (fileName == null ||
+                !(fileName.toLowerCase().endsWith(".pdf") ||
+                        fileName.toLowerCase().endsWith(".doc") ||
+                        fileName.toLowerCase().endsWith(".docx"))) {
+            return Response.fail(ErrorCode.BAD_REQUEST, "仅支持 PDF、DOC、DOCX 格式文件");
+        }
+        try {
+            int chunkCount = documentService.processDocument(file);
+            Map<String, Object> data = new HashMap<>();
+            data.put("fileName", fileName);
+            data.put("chunkCount", chunkCount);
+            return Response.success(data);
+        } catch (IOException e) {
+            log.error("文档处理失败", e);
+            return Response.fail(ErrorCode.INTERNAL_ERROR, "文档处理失败: " + e.getMessage());
+        }
     }
 
     // ==================== 带元数据上传（含权限） ====================
     @PostMapping("/upload/metadata")
-    public Map<String, Object> uploadDocumentWithMetadata(
+    public Response<KbDocument> uploadDocumentWithMetadata(
             @RequestParam("file") MultipartFile file,
             @RequestParam(required = false) String title,
             @RequestParam Long departmentId,
@@ -76,11 +73,7 @@ public class DocumentController {
             @RequestParam(defaultValue = "false") Boolean isPublic,
             Authentication authentication) {
 
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username);
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
-        }
+        SysUser user = currentUser(authentication);
 
         DocumentUploadDTO meta = new DocumentUploadDTO();
         meta.setTitle(title);
@@ -89,30 +82,18 @@ public class DocumentController {
         meta.setIsPublic(isPublic);
 
         try {
-            KbDocument doc = documentService.uploadDocument(file, meta, user.getId());
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("message", "上传成功");
-            result.put("data", doc);
-            return result;
+            return Response.success(documentService.uploadDocument(file, meta, user.getId()));
         } catch (Exception e) {
             log.error("上传失败", e);
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", false);
-            result.put("message", e.getMessage());
-            return result;
+            return Response.fail(ErrorCode.BAD_REQUEST, e.getMessage());
         }
     }
 
     // ==================== 从 URL 上传 ====================
     @PostMapping("/upload/url")
-    public Map<String, Object> uploadFromUrl(@RequestBody UrlUploadRequest request,
-                                             Authentication authentication) {
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username);
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
-        }
+    public Response<KbDocument> uploadFromUrl(@RequestBody UrlUploadRequest request,
+                                              Authentication authentication) {
+        SysUser user = currentUser(authentication);
 
         DocumentUploadDTO meta = new DocumentUploadDTO();
         meta.setTitle(request.getTitle());
@@ -121,71 +102,45 @@ public class DocumentController {
         meta.setIsPublic(request.getIsPublic() != null ? request.getIsPublic() : false);
 
         try {
-            KbDocument doc = documentService.uploadFromUrl(request.getUrl(), meta, user.getId());
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("message", "URL上传成功");
-            result.put("data", doc);
-            return result;
+            return Response.success(
+                    documentService.uploadFromUrl(request.getUrl(), meta, user.getId()));
         } catch (Exception e) {
             log.error("URL上传失败", e);
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("message", e.getMessage());
-            return error;
+            return Response.fail(ErrorCode.BAD_REQUEST, e.getMessage());
         }
     }
 
     // ==================== 文档列表 ====================
     @GetMapping("/list")
-    public Map<String, Object> listDocuments(
+    public Response<PageResult<DocumentListDTO>> listDocuments(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long departmentId,
             Authentication authentication) {
 
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username);
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
-        }
-
-        Page<DocumentListDTO> pageResult = documentService.listDocuments(page, size, keyword, departmentId, user.getId());
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", pageResult.getRecords());
-        result.put("total", pageResult.getTotal());
-        result.put("page", pageResult.getCurrent());
-        result.put("size", pageResult.getSize());
-        return result;
+        SysUser user = currentUser(authentication);
+        Page<DocumentListDTO> p =
+                documentService.listDocuments(page, size, keyword, departmentId, user.getId());
+        return Response.success(PageResult.of(p.getRecords(), p.getTotal(), p.getCurrent(), p.getSize()));
     }
 
     // ==================== 删除文档 ====================
     @DeleteMapping("/{id}")
-    public Map<String, Object> deleteDocument(@PathVariable Long id,
-                                              Authentication authentication) {
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username);
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
-        }
+    public Response<Void> deleteDocument(@PathVariable Long id, Authentication authentication) {
+        SysUser user = currentUser(authentication);
         documentService.deleteDocument(id, user.getId());
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "文档删除成功");
-        return result;
+        return Response.success();
     }
 
     // ==================== 下载文档 ====================
+    // 【注意】这个接口返回二进制流，绝对不能用 Response 包裹：
+    // 客户端拿它当文件下载（octet-stream + Content-Disposition），
+    // 包成 JSON 信封会让下载直接坏掉。
     @GetMapping("/download/{id}")
     public ResponseEntity<Resource> downloadDocument(@PathVariable Long id,
                                                      Authentication authentication) {
-        String username = authentication.getName();
-        SysUser user = userService.findByUsernameOrEmail(username);
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
-        }
+        SysUser user = currentUser(authentication);
 
         Resource resource = documentService.downloadDocument(id, user.getId());
         KbDocument doc = documentService.getDocumentById(id);
@@ -200,11 +155,15 @@ public class DocumentController {
 
     // ==================== 获取文档详情 ====================
     @GetMapping("/{id}")
-    public Map<String, Object> getDocument(@PathVariable Long id) {
-        KbDocument doc = documentService.getDocumentById(id);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", doc);
-        return result;
+    public Response<KbDocument> getDocument(@PathVariable Long id) {
+        return Response.success(documentService.getDocumentById(id));
+    }
+
+    private SysUser currentUser(Authentication authentication) {
+        SysUser user = userService.findByUsernameOrEmail(authentication.getName());
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        return user;
     }
 }

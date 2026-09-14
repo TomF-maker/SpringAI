@@ -36,8 +36,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 放行所有页面和静态资源
                         .requestMatchers("/", "/history", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/css/**", "/js/**", "/error").permitAll()
-                        // 放行认证和测试 API
-                        .requestMatchers("/api/auth/**", "/api/test/**").permitAll()
+                        // 放行认证 API（/api/test/** 已随测试接口一起删除）
+                        .requestMatchers("/api/auth/**").permitAll()
                         // 放行流接口
                         .requestMatchers("/api/rag/chat/stream","/api/qdrant/clear").permitAll()
                         // 其他所有 API 需要认证

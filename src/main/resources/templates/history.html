@@ -82,7 +82,8 @@
         try {
             const resp = await fetch('/api/conversations');
             const data = await resp.json();
-            renderList(data);
+            // 统一信封：列表在 data.data 里（以前整个 body 就是数组）
+            renderList(data.data || []);
         } catch (err) {
             document.getElementById('conversationList').innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>加载失败</p></div>`;
         }

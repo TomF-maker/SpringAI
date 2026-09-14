@@ -1,6 +1,8 @@
 package com.example.springai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.springai.common.ErrorCode;
+import com.example.springai.common.Response;
 import com.example.springai.dto.LoginRequest;
 import com.example.springai.dto.LoginResponse;
 import com.example.springai.dto.RegisterRequest;
@@ -93,7 +95,8 @@ public class AuthController {
      * 不可信则不下发 token，改发一个"手机验证码挑战"。
      */
     @PostMapping("/login")
-    public LoginResponse login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    public Response<LoginResponse> login(@RequestBody LoginRequest request,
+                                         HttpServletRequest httpRequest) {
         // 1. 认证
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
@@ -117,7 +120,7 @@ public class AuthController {
             log.info("登录需要二次验证: userId={}, scene={}, 网段={}→{}",
                     user.getId(), scene, user.getLastLoginIp(), ipPrefix);
 
-            return LoginResponse.builder()
+            return Response.success(LoginResponse.builder()
                     .requirePhoneVerify(true)
                     .scene(scene)
                     .maskedPhone(PhoneUtils.mask(user.getPhone()))
@@ -125,11 +128,11 @@ public class AuthController {
                     .username(user.getUsername())
                     .realName(user.getRealName())
                     .userId(user.getId())
-                    .build();
+                    .build());
         }
 
         // 4. 放行：签发 token 并记录本次网段
-        return issueToken(user, ipPrefix, null);
+        return Response.success(issueToken(user, ipPrefix, null));
     }
 
     /**
@@ -138,7 +141,8 @@ public class AuthController {
      * <p>请求体只接受 challengeId / code / phone，用户身份一律从挑战记录里取。
      */
     @PostMapping("/verify-login")
-    public LoginResponse verifyLogin(@RequestBody VerifyLoginRequest request, HttpServletRequest httpRequest) {
+    public Response<LoginResponse> verifyLogin(@RequestBody VerifyLoginRequest request,
+                                               HttpServletRequest httpRequest) {
         requireSmsEnabled();
         String ipPrefix = ipUtils.toPrefix(ipUtils.getClientIp(httpRequest));
 
@@ -159,7 +163,7 @@ public class AuthController {
 
         log.info("登录挑战通过: userId={}, scene={}, 网段={}",
                 user.getId(), isBind ? "BIND" : "VERIFY", ipPrefix);
-        return issueToken(user, ipPrefix, bindPhone);
+        return Response.success(issueToken(user, ipPrefix, bindPhone));
     }
 
     /**
@@ -169,8 +173,8 @@ public class AuthController {
      * 补绑手机号（给手机号 + BIND 场景）。
      */
     @PostMapping("/send-sms-code")
-    public Map<String, Object> sendSmsCode(@RequestBody SendSmsCodeRequest request,
-                                           HttpServletRequest httpRequest) {
+    public Response<Map<String, Object>> sendSmsCode(@RequestBody SendSmsCodeRequest request,
+                                                     HttpServletRequest httpRequest) {
         requireSmsEnabled();
         String phone = PhoneUtils.normalize(request.getPhone());
         String scene = request.getScene() == null ? SmsScene.REGISTER : request.getScene();
@@ -211,28 +215,21 @@ public class AuthController {
             throw e;
         }
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "验证码已发送");
-        result.put("maskedPhone", PhoneUtils.mask(phone));
-        return result;
+        Map<String, Object> data = new HashMap<>();
+        data.put("maskedPhone", PhoneUtils.mask(phone));
+        return Response.success(data);
     }
 
     /**
      * 发送邮箱验证码（保留原有能力，密码重置等流程仍在用）。
+     *
+     * <p>发送失败不再吞掉返回 200：SMTP 挂了属于服务端故障，直接抛出去，
+     * 由全局处理器返回 500 + 信封，前端看 {@code success:false} 即可。
      */
     @PostMapping("/send-code")
-    public Map<String, Object> sendCode(@RequestBody SendCodeRequest request) {
-        Map<String, Object> result = new HashMap<>();
-        try {
-            emailService.sendVerificationCode(request.getEmail());
-            result.put("code", 200);
-            result.put("message", "验证码已发送");
-        } catch (Exception e) {
-            result.put("code", 500);
-            result.put("message", "发送失败: " + e.getMessage());
-        }
-        return result;
+    public Response<Void> sendCode(@RequestBody SendCodeRequest request) {
+        emailService.sendVerificationCode(request.getEmail());
+        return Response.success();
     }
 
     /**
@@ -246,8 +243,7 @@ public class AuthController {
      * </ul>
      */
     @PostMapping("/register")
-    public Map<String, Object> register(@RequestBody RegisterRequest request) {
-        Map<String, Object> response = new HashMap<>();
+    public Response<Map<String, Object>> register(@RequestBody RegisterRequest request) {
 
         // 1. 手机号：短信开启时必填并使用短信验证码；关闭时可选，改用邮箱验证码
         String phone = PhoneUtils.normalize(request.getPhone());
@@ -256,25 +252,17 @@ public class AuthController {
 
         if (smsEnabled) {
             if (phone == null) {
-                response.put("code", 400);
-                response.put("message", "请填写正确的手机号");
-                return response;
+                return Response.fail(ErrorCode.BAD_REQUEST, "请填写正确的手机号");
             }
             if (!smsService.verifyCode(phone, SmsScene.REGISTER, request.getCode())) {
-                response.put("code", 400);
-                response.put("message", "验证码错误或已过期");
-                return response;
+                return Response.fail(ErrorCode.BAD_REQUEST, "验证码错误或已过期");
             }
         } else {
             if (email == null) {
-                response.put("code", 400);
-                response.put("message", "请填写邮箱");
-                return response;
+                return Response.fail(ErrorCode.BAD_REQUEST, "请填写邮箱");
             }
             if (!verificationCodeService.verify(email, request.getCode())) {
-                response.put("code", 400);
-                response.put("message", "验证码错误或已过期");
-                return response;
+                return Response.fail(ErrorCode.BAD_REQUEST, "验证码错误或已过期");
             }
         }
 
@@ -283,16 +271,12 @@ public class AuthController {
                 new QueryWrapper<SysUser>().eq("username", request.getUsername())
         );
         if (existingByUsername != null) {
-            response.put("code", 400);
-            response.put("message", "用户名已被占用");
-            return response;
+            return Response.fail(ErrorCode.BAD_REQUEST, "用户名已被占用");
         }
 
         // 3. 手机号查重（仅在填了手机号时）
         if (phone != null && findByPhone(phone) != null) {
-            response.put("code", 400);
-            response.put("message", "该手机号已被注册");
-            return response;
+            return Response.fail(ErrorCode.BAD_REQUEST, "该手机号已被注册");
         }
 
         // 4. 邮箱查重（仅在填了邮箱时）
@@ -301,9 +285,7 @@ public class AuthController {
                     new QueryWrapper<SysUser>().eq("email", email)
             );
             if (existingByEmail != null) {
-                response.put("code", 400);
-                response.put("message", "邮箱已被注册");
-                return response;
+                return Response.fail(ErrorCode.BAD_REQUEST, "邮箱已被注册");
             }
         }
 
@@ -329,10 +311,9 @@ public class AuthController {
         userRole.setCreatedAt(LocalDateTime.now());
         userRoleMapper.insert(userRole);
 
-        response.put("code", 200);
-        response.put("message", "注册成功");
-        response.put("userId", user.getId());
-        return response;
+        Map<String, Object> data = new HashMap<>();
+        data.put("userId", user.getId());
+        return Response.success(data);
     }
 
     /** 短信相关接口在总开关关闭时直接拒绝，避免前端拿到一个永远收不到的验证码。 */

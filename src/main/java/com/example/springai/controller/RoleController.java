@@ -1,5 +1,6 @@
 package com.example.springai.controller;
 
+import com.example.springai.common.Response;
 import com.example.springai.entity.SysRole;
 import com.example.springai.mapper.SysRoleMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +18,7 @@ public class RoleController {
     private SysRoleMapper roleMapper;
 
     @GetMapping
-    public List<SysRole> listAllRoles() {
-        return roleMapper.selectList(null);
+    public Response<List<SysRole>> listAllRoles() {
+        return Response.success(roleMapper.selectList(null));
     }
 }

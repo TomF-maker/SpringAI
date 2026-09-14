@@ -242,7 +242,9 @@
         try {
             const resp = await fetch('/api/dashboard/statistics');
             if (!resp.ok) throw new Error('加载失败');
-            const data = await resp.json();
+            // 统一信封：统计字段在 data 里。这里解包一次，
+            // 下面三十多处 data.xxx 的读法就都不用动。
+            const data = (await resp.json()).data || {};
 
             // 更新卡片
             document.getElementById('totalDocs').textContent = data.totalDocuments || 0;
@@ -380,7 +382,8 @@
             const resp = await fetch(
                 `/api/dashboard/question-statistics?days=${questionDays}&topN=10`);
             if (!resp.ok) throw new Error('加载失败');
-            const data = await resp.json();
+            // 统一信封：统计字段在 data 里（同样解包一次即可）
+            const data = (await resp.json()).data || {};
 
             if (data.unavailable) {
                 document.getElementById('questionUnavailable').classList.remove('d-none');

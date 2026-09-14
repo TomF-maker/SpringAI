@@ -146,14 +146,13 @@
             });
             const data = await response.json();
 
-            // 两个接口都可能是 HTTP 200 但 body 里 code != 200
-            // （send-code 一直如此，send-sms-code 抛异常时走的是 HTTP 500 + code:500）。
-            // 所以统一看 body 里的 code，不看 response.ok。
-            if (data.code === 200) {
+            // 统一信封：成功看 success，失败信息在 errMessage。
+            // 服务端故障（SMTP 挂了等）会是 HTTP 500 + success:false，这里也能接住。
+            if (data.success) {
                 alert(SMS_ENABLED ? '验证码已发送' : '验证码已发送到您的邮箱');
                 startCountdown();
             } else {
-                alert(data.message || '发送失败');
+                alert(data.errMessage || '发送失败');
                 sendBtn.disabled = false;
             }
         } catch (err) {
@@ -189,13 +188,14 @@
             });
             const result = await response.json();
 
-            // 注意：注册接口校验失败时返回的仍是 HTTP 200，只是 body 里 code=400。
-            // 所以不能只看 response.ok，否则失败也会提示"注册成功"。
-            if (result.code === 200) {
+            // 注意：注册接口校验失败时返回的仍是 HTTP 200，
+            // 只是 body 里 success=false。所以不能只看 response.ok，
+            // 否则失败也会提示"注册成功"。
+            if (result.success) {
                 alert('注册成功！请登录');
                 window.location.href = '/login';
             } else {
-                errorDiv.textContent = result.message || '注册失败';
+                errorDiv.textContent = result.errMessage || '注册失败';
                 errorDiv.classList.remove('d-none');
             }
         } catch (err) {

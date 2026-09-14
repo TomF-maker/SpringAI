@@ -1,5 +1,6 @@
 package com.example.springai.controller;
 
+import com.example.springai.common.Response;
 import com.example.springai.entity.Conversation;
 import com.example.springai.entity.SysUser;
 import com.example.springai.service.ConversationServiceI;
@@ -25,34 +26,30 @@ public class ConversationController {
     private UserServiceI userService;
 
     @PostMapping
-    public Map<String, Object> createConversation(Authentication authentication,
-                                                  @RequestParam String question) {
+    public Response<Map<String, Object>> createConversation(Authentication authentication,
+                                                            @RequestParam String question) {
         SysUser user = userService.findByUsernameOrEmail(authentication.getName());
         Conversation conv = conversationService.createConversation(user.getId(), question);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("conversationId", conv.getId());
-        result.put("title", conv.getTitle());
-        return result;
+        Map<String, Object> data = new HashMap<>();
+        data.put("conversationId", conv.getId());
+        data.put("title", conv.getTitle());
+        return Response.success(data);
     }
 
     @GetMapping
-    public List<Conversation> getUserConversations(Authentication authentication) {
+    public Response<List<Conversation>> getUserConversations(Authentication authentication) {
         SysUser user = userService.findByUsernameOrEmail(authentication.getName());
-        return conversationService.getUserConversations(user.getId());
+        return Response.success(conversationService.getUserConversations(user.getId()));
     }
 
     @GetMapping("/{id}")
-    public Conversation getConversation(@PathVariable String id) {
-        return conversationService.getConversation(id);
+    public Response<Conversation> getConversation(@PathVariable String id) {
+        return Response.success(conversationService.getConversation(id));
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Object> deleteConversation(@PathVariable String id) {
+    public Response<Void> deleteConversation(@PathVariable String id) {
         conversationService.deleteConversation(id);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "删除成功");
-        return result;
+        return Response.success();
     }
 }

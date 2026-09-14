@@ -1,5 +1,6 @@
 package com.example.springai.controller;
 
+import com.example.springai.common.Response;
 import com.example.springai.dto.QuestionStatisticsDTO;
 import com.example.springai.dto.StatisticsDTO;
 import com.example.springai.service.DocumentServiceI;
@@ -23,8 +24,8 @@ public class DashboardController {
 
     @GetMapping("/statistics")
     @PreAuthorize("hasRole('ADMIN')")
-    public StatisticsDTO getStatistics() {
-        return documentService.getStatistics();
+    public Response<StatisticsDTO> getStatistics() {
+        return Response.success(documentService.getStatistics());
     }
 
     /**
@@ -38,12 +39,12 @@ public class DashboardController {
      */
     @GetMapping("/question-statistics")
     @PreAuthorize("hasRole('ADMIN')")
-    public QuestionStatisticsDTO getQuestionStatistics(
+    public Response<QuestionStatisticsDTO> getQuestionStatistics(
             @RequestParam(defaultValue = "7") int days,
             @RequestParam(defaultValue = "10") int topN) {
         // 夹紧取值范围，避免被拼成奇怪的查询
         int safeDays = Math.min(Math.max(days, 1), 365);
         int safeTopN = Math.min(Math.max(topN, 1), 50);
-        return questionStatsService.getQuestionStatistics(safeDays, safeTopN);
+        return Response.success(questionStatsService.getQuestionStatistics(safeDays, safeTopN));
     }
 }

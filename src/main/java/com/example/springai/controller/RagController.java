@@ -1,5 +1,7 @@
 package com.example.springai.controller;
 
+import com.example.springai.common.ErrorCode;
+import com.example.springai.common.Response;
 import com.example.springai.entity.Conversation;
 import com.example.springai.entity.KbQuestionLog;
 import com.example.springai.entity.SysUser;
@@ -50,9 +52,8 @@ public class RagController {
      * 根据问题关键词自动选择工具模式或文档检索模式
      */
     @GetMapping("/chat")
-    public Map<String, Object> chat(@RequestParam String question) {
+    public Response<Map<String, Object>> chat(@RequestParam String question) {
         log.info("📨 收到RAG问答请求: {}", question);
-        Map<String, Object> response = new HashMap<>();
         try {
             String answer;
             if (question.contains("天气") || question.contains("新闻") || question.contains("热点")) {
@@ -60,9 +61,10 @@ public class RagController {
             } else {
                 answer = ragService.chatWithDocument(question);
             }
-            response.put("success", true);
-            response.put("question", question);
-            response.put("answer", answer);
+            Map<String, Object> data = new HashMap<>();
+            data.put("question", question);
+            data.put("answer", answer);
+            return Response.success(data);
         } catch (Exception e) {
             log.error("❌ RAG问答失败: {}", e.getMessage(), e);
             // 失败也要留痕，否则看板上看不到任何异常，问题会被静默吞掉
@@ -77,11 +79,9 @@ public class RagController {
             } catch (Throwable t) {
                 log.warn("异常埋点写入失败: {}", t.getMessage());
             }
-            response.put("success", false);
-            response.put("question", question);
-            response.put("answer", "处理失败: " + e.getMessage());
+            // 保持与原行为一致的"处理失败但请求本身成功"语义：HTTP 200 + success:false
+            return Response.fail(ErrorCode.INTERNAL_ERROR, "处理失败: " + e.getMessage());
         }
-        return response;
     }
 
     /**

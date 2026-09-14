@@ -292,7 +292,9 @@
         try {
             const resp = await fetch(`/api/conversations/${id}`);
             if (!resp.ok) throw new Error('加载历史消息失败');
-            const conv = await resp.json();
+            const envelope = await resp.json();
+            // 统一信封：会话实体在 data.data 里（以前整个 body 就是实体）
+            const conv = envelope.data;
             if (conv && conv.messages) {
                 conv.messages.forEach(msg => {
                     addMessage(msg.role === 'user' ? 'user' : 'ai', msg.content);
@@ -327,10 +329,11 @@
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
+            // 统一信封：成功取 data.data.answer，失败取 errMessage
             if (data.success) {
-                addMessage('ai', data.answer);
+                addMessage('ai', data.data.answer);
             } else {
-                addMessage('ai', `❌ 出错了：${data.answer || '未知错误'}`);
+                addMessage('ai', `❌ 出错了：${data.errMessage || '未知错误'}`);
             }
         } catch (error) {
             console.error('Blocking error:', error);

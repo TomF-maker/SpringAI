@@ -1,6 +1,8 @@
 package com.example.springai.controller;
 
 
+import com.example.springai.common.ErrorCode;
+import com.example.springai.common.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -34,12 +36,9 @@ public class QdrantClearController {
      * DELETE /api/qdrant/clear?confirm=true
      */
     @DeleteMapping("/clear")
-    public Map<String, Object> clearCollection(@RequestParam(defaultValue = "false") boolean confirm) {
-        Map<String, Object> response = new HashMap<>();
+    public Response<Map<String, Object>> clearCollection(@RequestParam(defaultValue = "false") boolean confirm) {
         if (!confirm) {
-            response.put("success", false);
-            response.put("message", "⚠️ 请确认操作：使用 ?confirm=true");
-            return response;
+            return Response.fail(ErrorCode.BAD_REQUEST, "⚠️ 请确认操作：使用 ?confirm=true");
         }
 
         try {
@@ -47,9 +46,7 @@ public class QdrantClearController {
             String infoUrl = qdrantBaseUrl + "/collections/" + collectionName;
             ResponseEntity<Map> infoResponse = restTemplate.getForEntity(infoUrl, Map.class);
             if (infoResponse.getStatusCode() != HttpStatus.OK) {
-                response.put("success", false);
-                response.put("message", "集合不存在或无法访问");
-                return response;
+                return Response.fail(ErrorCode.NOT_FOUND, "集合不存在或无法访问");
             }
 
             // 获取当前点数（用于日志）
@@ -81,27 +78,24 @@ public class QdrantClearController {
                     Map.class
             );
 
-            if (deleteResponse.getStatusCode() == HttpStatus.OK) {
-                Map deleteResult = deleteResponse.getBody();
-                if (deleteResult != null && deleteResult.containsKey("result")) {
-                    log.info("✅ 清空成功，删除了 {} 个点", pointsCount != null ? pointsCount : "未知");
-                    response.put("success", true);
-                    response.put("message", "✅ 清空成功");
-                    response.put("deletedCount", pointsCount != null ? pointsCount.intValue() : -1);
-                } else {
-                    response.put("success", false);
-                    response.put("message", "清空操作失败，响应：" + deleteResult);
-                }
-            } else {
-                response.put("success", false);
-                response.put("message", "清空请求失败，状态码：" + deleteResponse.getStatusCode());
+            if (deleteResponse.getStatusCode() != HttpStatus.OK) {
+                return Response.fail(ErrorCode.INTERNAL_ERROR,
+                        "清空请求失败，状态码：" + deleteResponse.getStatusCode());
             }
+
+            Map deleteResult = deleteResponse.getBody();
+            if (deleteResult == null || !deleteResult.containsKey("result")) {
+                return Response.fail(ErrorCode.INTERNAL_ERROR, "清空操作失败，响应：" + deleteResult);
+            }
+
+            log.info("✅ 清空成功，删除了 {} 个点", pointsCount != null ? pointsCount : "未知");
+            Map<String, Object> data = new HashMap<>();
+            data.put("deletedCount", pointsCount != null ? pointsCount.intValue() : -1);
+            return Response.success(data);
         } catch (Exception e) {
             log.error("❌ 清空失败", e);
-            response.put("success", false);
-            response.put("message", "清空失败: " + e.getMessage());
+            return Response.fail(ErrorCode.INTERNAL_ERROR, "清空失败: " + e.getMessage());
         }
-        return response;
     }
 
     /**
@@ -109,23 +103,20 @@ public class QdrantClearController {
      * GET /api/qdrant/info
      */
     @GetMapping("/info")
-    public Map<String, Object> getCollectionInfo() {
-        Map<String, Object> response = new HashMap<>();
+    public Response<Map<String, Object>> getCollectionInfo() {
         try {
             String url = qdrantBaseUrl + "/collections/" + collectionName;
             ResponseEntity<Map> resp = restTemplate.getForEntity(url, Map.class);
-            if (resp.getStatusCode() == HttpStatus.OK) {
-                response.put("success", true);
-                response.put("collectionName", collectionName);
-                response.put("info", resp.getBody());
-            } else {
-                response.put("success", false);
-                response.put("message", "获取信息失败，状态码：" + resp.getStatusCode());
+            if (resp.getStatusCode() != HttpStatus.OK) {
+                return Response.fail(ErrorCode.INTERNAL_ERROR,
+                        "获取信息失败，状态码：" + resp.getStatusCode());
             }
+            Map<String, Object> data = new HashMap<>();
+            data.put("collectionName", collectionName);
+            data.put("info", resp.getBody());
+            return Response.success(data);
         } catch (Exception e) {
-            response.put("success", false);
-            response.put("message", e.getMessage());
+            return Response.fail(ErrorCode.INTERNAL_ERROR, e.getMessage());
         }
-        return response;
     }
 }

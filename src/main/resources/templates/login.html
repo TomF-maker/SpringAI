@@ -100,7 +100,19 @@
         el.classList.remove('d-none');
     }
 
-    function saveAndGo(data) {
+    /**
+     * 保存登录态并跳转。入参是服务端的统一信封 {success, errCode, errMessage, data}。
+     *
+     * 这里**必须**先校验 token 真的存在再跳转：如果哪天登录失败被返回成
+     * HTTP 200 + success:false，无条件 setItem 会把字符串 "undefined" 存成 token
+     * 然后跳到 /chat —— 登录失败会表现成登录成功，且之后每个请求都 401。
+     */
+    function saveAndGo(envelope) {
+        const data = envelope && envelope.data;
+        if (!data || !data.token) {
+            showError(loginError, (envelope && envelope.errMessage) || '登录失败，请重试');
+            return;
+        }
         localStorage.setItem('token', data.token);
         localStorage.setItem('username', data.username);
         localStorage.setItem('realName', data.realName);
@@ -140,21 +152,24 @@
                     password: document.getElementById('password').value
                 })
             });
-            const data = await response.json();
+            const envelope = await response.json();
 
-            if (!response.ok) {
-                showError(loginError, data.message || '登录失败，请重试');
+            // 统一信封：失败看 success（密码错是 HTTP 401 + success:false）
+            if (!envelope.success) {
+                showError(loginError, envelope.errMessage || '登录失败，请重试');
                 return;
             }
 
+            const data = envelope.data;
+
             // 关键分支：密码通过了，但需要手机验证码二次验证。
-            // 如果不判断这个标志位，就会把字符串 "undefined" 当成 token 存起来再跳转。
+            // 不判这个标志位就会把 "undefined" 当 token 存起来再跳转。
             if (data.requirePhoneVerify) {
                 enterVerifyStep(data);
                 return;
             }
 
-            saveAndGo(data);
+            saveAndGo(envelope);
         } catch (err) {
             showError(loginError, '网络错误，请稍后重试');
         }
@@ -205,8 +220,8 @@
             });
             const data = await response.json();
 
-            if (!response.ok) {
-                showError(verifyError, data.message || '验证码发送失败');
+            if (!data.success) {
+                showError(verifyError, data.errMessage || '验证码发送失败');
                 sendCodeBtn.disabled = false;
                 return;
             }
@@ -257,13 +272,13 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-            const data = await response.json();
+            const envelope = await response.json();
 
-            if (!response.ok) {
-                showError(verifyError, data.message || '验证失败，请重试');
+            if (!envelope.success) {
+                showError(verifyError, envelope.errMessage || '验证失败，请重试');
                 return;
             }
-            saveAndGo(data);
+            saveAndGo(envelope);
         } catch (err) {
             showError(verifyError, '网络错误，请稍后重试');
         }

@@ -187,7 +187,7 @@
         try {
             const resp = await fetch('/api/departments/tree');
             const data = await resp.json();
-            if (!data.success) throw new Error(data.message);
+            if (!data.success) throw new Error(data.errMessage);
             allDepts = data.data || [];
             renderTree(allDepts);
         } catch (err) {
@@ -331,7 +331,7 @@
                 Swal.fire('✅ 删除成功', '', 'success');
                 loadDepartmentTree();
             } else {
-                Swal.fire('❌ 删除失败', data.message, 'error');
+                Swal.fire('❌ 删除失败', data.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');
@@ -366,10 +366,12 @@
             if (keyword) params.append('keyword', keyword);
             const resp = await fetch('/api/users/employees?' + params.toString());
             const data = await resp.json();
-            if (!data.success) throw new Error(data.message);
-            renderEmployeeTable(data.data || []);
-            renderEmpPagination(data.total, data.page, data.size);
-            currentEmpPage = data.page;
+            if (!data.success) throw new Error(data.errMessage);
+            // 统一信封 + 分页：列表与分页信息都在 data.data（PageResult）
+            const pageResult = data.data || {};
+            renderEmployeeTable(pageResult.records || []);
+            renderEmpPagination(pageResult.total, pageResult.page, pageResult.size);
+            currentEmpPage = pageResult.page;
         } catch (err) {
             tbody.innerHTML = `<tr><td colspan="6" class="text-danger">加载失败：${err.message}</td></tr>`;
         }
@@ -487,7 +489,7 @@
                 bootstrap.Modal.getInstance(document.getElementById('deptModal')).hide();
                 loadDepartmentTree();
             } else {
-                Swal.fire('❌ 保存失败', data.message, 'error');
+                Swal.fire('❌ 保存失败', data.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');

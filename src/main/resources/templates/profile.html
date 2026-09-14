@@ -116,7 +116,7 @@
         try {
             const resp = await fetch('/api/users/me');
             const data = await resp.json();
-            if (!data.success) throw new Error(data.message);
+            if (!data.success) throw new Error(data.errMessage);
             const user = data.data;
             document.getElementById('username').value = user.username;
             document.getElementById('realName').value = user.realName || '';
@@ -154,7 +154,7 @@
                 }
                 loadUserInfo();
             } else {
-                Swal.fire('❌ 保存失败', result.message, 'error');
+                Swal.fire('❌ 保存失败', result.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');
@@ -216,7 +216,7 @@
                         localStorage.clear();
                         window.location.href = '/login';
                     } else {
-                        Swal.fire('❌ 修改失败', data.message, 'error');
+                        Swal.fire('❌ 修改失败', data.errMessage, 'error');
                     }
                 } catch (err) {
                     Swal.fire('❌ 请求失败', err.message, 'error');

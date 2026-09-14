@@ -268,11 +268,13 @@
         try {
             const resp = await fetch('/api/documents/list?' + params.toString());
             const data = await resp.json();
-            if (!data.success) throw new Error(data.message);
+            if (!data.success) throw new Error(data.errMessage);
 
-            renderTable(data.data || []);
-            renderPagination(data.total || 0, data.page || 1, data.size || pageSize);
-            currentPage = data.page || 1;
+            // 统一信封 + 分页：列表与分页信息都在 data.data（PageResult）
+            const pageResult = data.data || {};
+            renderTable(pageResult.records || []);
+            renderPagination(pageResult.total || 0, pageResult.page || 1, pageResult.size || pageSize);
+            currentPage = pageResult.page || 1;
         } catch (err) {
             document.getElementById('docTableBody').innerHTML =
                 `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${err.message}</td></tr>`;
@@ -388,7 +390,7 @@
                 bootstrap.Modal.getInstance(document.getElementById('uploadFileModal')).hide();
                 loadDocuments(currentPage);
             } else {
-                Swal.fire('❌ 上传失败', data.message, 'error');
+                Swal.fire('❌ 上传失败', data.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');
@@ -433,7 +435,7 @@
                 bootstrap.Modal.getInstance(document.getElementById('uploadUrlModal')).hide();
                 loadDocuments(currentPage);
             } else {
-                Swal.fire('❌ 上传失败', data.message, 'error');
+                Swal.fire('❌ 上传失败', data.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');
@@ -467,7 +469,7 @@
                 await Swal.fire('✅ 删除成功', '', 'success');
                 loadDocuments(currentPage);
             } else {
-                Swal.fire('❌ 删除失败', data.message, 'error');
+                Swal.fire('❌ 删除失败', data.errMessage, 'error');
             }
         } catch (err) {
             Swal.fire('❌ 请求失败', err.message, 'error');

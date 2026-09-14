@@ -38,8 +38,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 2. 放行认证接口和测试接口
-        if (requestURI.startsWith("/api/auth/") || requestURI.startsWith("/api/test/")) {
+        // 2. 放行认证接口
+        if (requestURI.startsWith("/api/auth/")) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -50,7 +50,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"code\":401,\"message\":\"未提供Token\"}");
+            response.getWriter().write(unauthorized("未提供Token"));
             return;
         }
 
@@ -62,7 +62,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         } catch (Exception e) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"code\":401,\"message\":\"Token无效\"}");
+            response.getWriter().write(unauthorized("Token无效"));
             return;
         }
 
@@ -76,11 +76,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             } else {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 response.setContentType("application/json;charset=UTF-8");
-                response.getWriter().write("{\"code\":401,\"message\":\"Token已过期或无效\"}");
+                response.getWriter().write(unauthorized("Token已过期或无效"));
                 return;
             }
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * 过滤器直接写响应体，绕过了 Spring MVC，所以拿不到 @RestControllerAdvice。
+     * 这里手工拼成和 {@code Response} 一致的信封形状，保证全站 JSON 结构统一。
+     * 状态码保持 401 —— 认证失败是传输层的事实，不能伪装成 200。
+     */
+    private String unauthorized(String message) {
+        return "{\"success\":false,\"errCode\":\"401\",\"errMessage\":\"" + message + "\",\"data\":null}";
     }
 }

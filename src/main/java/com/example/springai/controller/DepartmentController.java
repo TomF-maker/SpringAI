@@ -1,5 +1,6 @@
 package com.example.springai.controller;
 
+import com.example.springai.common.Response;
 import com.example.springai.dto.DepartmentRequest;
 import com.example.springai.dto.DepartmentTreeDTO;
 import com.example.springai.entity.SysDepartment;
@@ -9,9 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @Slf4j
 @RestController
@@ -23,49 +22,28 @@ public class DepartmentController {
     private DepartmentServiceI departmentService;
 
     @GetMapping("/tree")
-    public Map<String, Object> getTree() {
-        List<DepartmentTreeDTO> tree = departmentService.getDepartmentTree();
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", tree);
-        return result;
+    public Response<List<DepartmentTreeDTO>> getTree() {
+        return Response.success(departmentService.getDepartmentTree());
     }
 
     @GetMapping("/{id}")
-    public Map<String, Object> getDepartment(@PathVariable Long id) {
-        SysDepartment dept = departmentService.getDepartmentById(id);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("data", dept);
-        return result;
+    public Response<SysDepartment> getDepartment(@PathVariable Long id) {
+        return Response.success(departmentService.getDepartmentById(id));
     }
 
     @PostMapping
-    public Map<String, Object> createDepartment(@RequestBody DepartmentRequest request) {
-        SysDepartment dept = departmentService.createDepartment(request);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "部门创建成功");
-        result.put("data", dept);
-        return result;
+    public Response<SysDepartment> createDepartment(@RequestBody DepartmentRequest request) {
+        return Response.success(departmentService.createDepartment(request));
     }
 
     @PutMapping
-    public Map<String, Object> updateDepartment(@RequestBody DepartmentRequest request) {
-        SysDepartment dept = departmentService.updateDepartment(request);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "部门更新成功");
-        result.put("data", dept);
-        return result;
+    public Response<SysDepartment> updateDepartment(@RequestBody DepartmentRequest request) {
+        return Response.success(departmentService.updateDepartment(request));
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Object> deleteDepartment(@PathVariable Long id) {
+    public Response<Void> deleteDepartment(@PathVariable Long id) {
         departmentService.deleteDepartment(id);
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("message", "部门删除成功");
-        return result;
+        return Response.success();
     }
 }
