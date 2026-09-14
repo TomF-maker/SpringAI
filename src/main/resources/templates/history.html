@@ -11,24 +11,108 @@
     <link rel="stylesheet" href="/css/app.css?v=1">
     <style>
         .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-        .conv-item {
-            padding: 16px 20px;
-            border-bottom: 1px solid #f1f3f5;
-            cursor: pointer;
-            transition: background 0.2s;
+
+        /* ---------- 页头 ---------- */
+        .page-head {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            gap: 12px;
+            align-items: flex-end;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
         }
-        .conv-item:hover { background: #f8f9fa; }
-        .conv-item .info { flex: 1; min-width: 0; }
-        .conv-item .title { font-weight: 500; overflow-wrap: anywhere; }
-        .conv-item .meta { font-size: 13px; color: #94a3b8; overflow-wrap: anywhere; }
-        .conv-item .delete-btn { cursor: pointer; color: #dc3545; opacity: 0.6; }
-        .conv-item .delete-btn:hover { opacity: 1; }
-        .empty-state { text-align: center; padding: 60px 0; color: #94a3b8; }
-        .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+        .page-head h5 { margin: 0; font-weight: 600; }
+        .page-head .sub { margin: 4px 0 0; font-size: 13px; color: #94a3b8; }
+        .search-box { position: relative; min-width: 220px; flex: 0 1 280px; }
+        .search-box i {
+            position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+            color: #94a3b8; font-size: 14px; pointer-events: none;
+        }
+        .search-box input {
+            width: 100%; padding: 8px 12px 8px 34px;
+            border: 1px solid #e2e8f0; border-radius: 20px;
+            font-size: 14px; outline: none; transition: border-color .2s, box-shadow .2s;
+        }
+        .search-box input:focus { border-color: #1a73e8; box-shadow: 0 0 0 3px rgba(26,115,232,.12); }
+
+        /* ---------- 日期分组 ---------- */
+        .group-label {
+            display: flex; align-items: center; gap: 10px;
+            margin: 20px 0 10px; font-size: 12px; font-weight: 600;
+            color: #94a3b8; letter-spacing: .04em;
+        }
+        .group-label::after { content: ''; flex: 1; height: 1px; background: #eef2f7; }
+        .group-label:first-child { margin-top: 4px; }
+
+        /* ---------- 会话条目 ---------- */
+        .conv-item {
+            display: flex; align-items: center; gap: 14px;
+            padding: 14px 16px; margin-bottom: 10px;
+            border: 1px solid #eef2f7; border-radius: 12px;
+            background: #fff; cursor: pointer;
+            transition: border-color .18s, box-shadow .18s, transform .18s;
+        }
+        .conv-item:hover {
+            border-color: #cfe0f7;
+            box-shadow: 0 4px 16px rgba(26,115,232,.08);
+            transform: translateY(-1px);
+        }
+        .conv-avatar {
+            flex: none; width: 40px; height: 40px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #e8f0fe, #d6e4fb);
+            color: #1a73e8; font-size: 18px;
+        }
+        .conv-body { flex: 1; min-width: 0; }
+        .conv-title {
+            font-weight: 600; font-size: 15px; color: #1e293b;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .conv-preview {
+            margin-top: 3px; font-size: 13px; color: #64748b; line-height: 1.45;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden; overflow-wrap: anywhere;
+        }
+        .conv-meta {
+            margin-top: 8px; display: flex; align-items: center;
+            gap: 14px; flex-wrap: wrap; font-size: 12px; color: #94a3b8;
+        }
+        .conv-meta span { display: inline-flex; align-items: center; gap: 5px; }
+        .conv-actions { flex: none; display: flex; align-items: center; gap: 10px; }
+        .conv-delete {
+            border: 0; background: transparent; padding: 6px 8px; border-radius: 8px;
+            color: #cbd5e1; font-size: 15px; line-height: 1;
+            opacity: 0; transition: opacity .15s, color .15s, background .15s;
+        }
+        .conv-item:hover .conv-delete { opacity: 1; }
+        .conv-delete:hover { color: #dc3545; background: #fee2e2; }
+        /* 触屏设备没有 hover，删除按钮必须一直可见，否则手机上根本删不掉 */
+        @media (hover: none) { .conv-delete { opacity: 1; } }
+        .conv-chevron { color: #cbd5e1; font-size: 15px; transition: transform .18s, color .18s; }
+        .conv-item:hover .conv-chevron { color: #1a73e8; transform: translateX(2px); }
+
+        /* ---------- 空状态 / 骨架 ---------- */
+        .empty-state { text-align: center; padding: 64px 20px; color: #94a3b8; }
+        .empty-state .icon { font-size: 52px; margin-bottom: 14px; opacity: .9; }
+        .empty-state p { margin: 0 0 6px; font-size: 15px; color: #64748b; font-weight: 500; }
+        .empty-state small { display: block; margin-bottom: 18px; }
+        .skeleton {
+            height: 78px; margin-bottom: 10px; border-radius: 12px;
+            background: linear-gradient(90deg, #f1f5f9 25%, #e8eef5 37%, #f1f5f9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.3s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 100% 50%; }
+            100% { background-position: 0 50%; }
+        }
+
+        @media (max-width: 575.98px) {
+            .page-head { align-items: stretch; }
+            .search-box { flex: 1 1 100%; }
+            .conv-item { padding: 12px; gap: 10px; }
+            .conv-avatar { width: 34px; height: 34px; font-size: 15px; }
+        }
     </style>
 </head>
 <body>
@@ -44,6 +128,18 @@
         <div th:replace="~{fragments/layout :: topbar('📋 历史记录')}"></div>
 
         <div class="content-card">
+            <!-- 页头：标题 + 计数 + 搜索 -->
+            <div class="page-head">
+                <div>
+                    <h5>对话历史</h5>
+                    <p class="sub" id="convCount">加载中…</p>
+                </div>
+                <div class="search-box">
+                    <i class="bi bi-search"></i>
+                    <input type="text" id="searchInput" placeholder="搜索对话标题或内容…">
+                </div>
+            </div>
+
             <div id="conversationList"></div>
         </div>
     </div>
@@ -76,60 +172,227 @@
     // 均由 /js/app.js 统一处理
 
     // ================================================================
-    // 加载历史记录
+    // 工具
     // ================================================================
+
+    /**
+     * HTML 转义。会话标题和消息内容都来自用户输入，
+     * 直接拼进 innerHTML 会被当成标签执行（一个带 <img onerror> 的提问就能触发）。
+     */
+    function esc(text) {
+        if (text == null) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    /**
+     * 解析后端返回的时间。
+     * LocalDateTime 序列化出来是 "2026-09-14T16:22:23.4562255"（无时区、小数位不定长），
+     * 不同引擎对这种格式的处理不一致，这里把小数位截成 3 位再解析，解析不了就返回 null。
+     */
+    function parseTime(value) {
+        if (!value) return null;
+        const normalized = String(value).replace(/(\.\d{3})\d+$/, '$1');
+        const d = new Date(normalized);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    function isSameDay(a, b) {
+        return a.getFullYear() === b.getFullYear()
+            && a.getMonth() === b.getMonth()
+            && a.getDate() === b.getDate();
+    }
+
+    function hhmm(d) {
+        return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+
+    /** 相对时间。绝对时间戳（2026/9/14 16:22:23）噪音太大，列表里读起来费劲。 */
+    function relativeTime(value) {
+        const d = parseTime(value);
+        if (!d) return '';
+        const now = new Date();
+        const diffMin = Math.floor((now - d) / 60000);
+
+        if (diffMin < 1) return '刚刚';
+        if (diffMin < 60) return diffMin + ' 分钟前';
+        if (isSameDay(d, now)) return Math.floor(diffMin / 60) + ' 小时前';
+
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        if (isSameDay(d, yesterday)) return '昨天 ' + hhmm(d);
+
+        const diffDay = Math.floor(diffMin / 1440);
+        if (diffDay < 7) return diffDay + ' 天前';
+
+        return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0')
+            + '/' + String(d.getDate()).padStart(2, '0');
+    }
+
+    /** 分组标签：今天 / 昨天 / 更早。 */
+    function groupOf(value) {
+        const d = parseTime(value);
+        if (!d) return '更早';
+        const now = new Date();
+        if (isSameDay(d, now)) return '今天';
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        if (isSameDay(d, yesterday)) return '昨天';
+        return '更早';
+    }
+
+    /** 取最后一条消息作为预览。 */
+    function lastMessage(conv) {
+        const msgs = conv.messages;
+        if (!msgs || msgs.length === 0) return '';
+        const last = msgs[msgs.length - 1];
+        const prefix = last.role === 'user' ? '我：' : '助手：';
+        return prefix + (last.content || '');
+    }
+
+    /** 提问轮数（只数用户消息），比"总消息数"更能反映对话长度。 */
+    function questionCount(conv) {
+        if (!conv.messages) return 0;
+        return conv.messages.filter(m => m.role === 'user').length;
+    }
+
+    // ================================================================
+    // 加载与渲染
+    // ================================================================
+    let allConversations = [];
+
     async function loadHistory() {
+        const container = document.getElementById('conversationList');
+        // 骨架屏：避免加载期间一片空白
+        container.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+
         try {
             const resp = await fetch('/api/conversations');
             const data = await resp.json();
-            // 统一信封：列表在 data.data 里（以前整个 body 就是数组）
-            renderList(data.data || []);
+            if (!data.success) throw new Error(data.errMessage || '加载失败');
+            // 统一信封：列表在 data.data 里
+            allConversations = data.data || [];
+            renderList();
         } catch (err) {
-            document.getElementById('conversationList').innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>加载失败</p></div>`;
+            container.innerHTML =
+                `<div class="empty-state"><div class="icon">😵</div><p>加载失败</p><small>${esc(err.message)}</small></div>`;
+            document.getElementById('convCount').textContent = '';
         }
     }
 
-    function renderList(conversations) {
+    function renderList() {
         const container = document.getElementById('conversationList');
-        if (!conversations || conversations.length === 0) {
-            container.innerHTML = `<div class="empty-state"><div class="icon">💬</div><p>暂无聊天记录</p><small class="text-muted">去智能问答页面开始第一次对话吧</small></div>`;
+        const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+
+        // 搜索：标题 + 全部消息内容
+        let list = allConversations;
+        if (keyword) {
+            list = allConversations.filter(conv => {
+                const haystack = [
+                    conv.title || '',
+                    ...(conv.messages || []).map(m => m.content || '')
+                ].join('\n').toLowerCase();
+                return haystack.includes(keyword);
+            });
+        }
+
+        document.getElementById('convCount').textContent = keyword
+            ? `匹配 ${list.length} / ${allConversations.length} 条对话`
+            : `共 ${allConversations.length} 条对话`;
+
+        if (list.length === 0) {
+            container.innerHTML = keyword
+                ? `<div class="empty-state"><div class="icon">🔍</div><p>没有匹配的对话</p><small>换个关键词试试</small></div>`
+                : `<div class="empty-state">
+                       <div class="icon">💬</div>
+                       <p>还没有对话记录</p>
+                       <small>去智能问答页面开始第一次对话吧</small>
+                       <a href="/chat" class="btn btn-primary btn-sm px-4">开始提问</a>
+                   </div>`;
             return;
         }
 
+        // 按 今天 / 昨天 / 更早 分组
+        const groups = { '今天': [], '昨天': [], '更早': [] };
+        list.forEach(conv => groups[groupOf(conv.updatedAt)].push(conv));
+
         let html = '';
-        conversations.forEach(conv => {
-            const time = conv.updatedAt ? new Date(conv.updatedAt).toLocaleString() : '';
-            const msgCount = conv.messages ? conv.messages.length : 0;
-            html += `
-                <div class="conv-item" onclick="viewConversation('${conv.id}')">
-                    <div class="info">
-                        <div class="title">${conv.title || '未命名对话'}</div>
-                        <div class="meta">${msgCount} 条消息 · ${time}</div>
+        ['今天', '昨天', '更早'].forEach(label => {
+            const items = groups[label];
+            if (items.length === 0) return;
+
+            html += `<div class="group-label">${label} · ${items.length}</div>`;
+            items.forEach(conv => {
+                const qCount = questionCount(conv);
+                const preview = lastMessage(conv);
+                html += `
+                    <div class="conv-item" data-id="${esc(conv.id)}">
+                        <div class="conv-avatar"><i class="bi bi-chat-text"></i></div>
+                        <div class="conv-body">
+                            <div class="conv-title">${esc(conv.title || '未命名对话')}</div>
+                            ${preview ? `<div class="conv-preview">${esc(preview)}</div>` : ''}
+                            <div class="conv-meta">
+                                <span><i class="bi bi-clock"></i>${esc(relativeTime(conv.updatedAt))}</span>
+                                <span><i class="bi bi-chat-square-dots"></i>${qCount} 轮提问</span>
+                            </div>
+                        </div>
+                        <div class="conv-actions">
+                            <button type="button" class="conv-delete" data-delete="${esc(conv.id)}" title="删除">
+                                <i class="bi bi-trash3"></i>
+                            </button>
+                            <i class="bi bi-chevron-right conv-chevron"></i>
+                        </div>
                     </div>
-                    <div>
-                        <span class="badge bg-secondary me-2">${msgCount} 条</span>
-                        <span class="delete-btn" onclick="event.stopPropagation();deleteConversation('${conv.id}')"><i class="bi bi-trash3"></i></span>
-                    </div>
-                </div>
-            `;
+                `;
+            });
         });
         container.innerHTML = html;
     }
 
     // ================================================================
+    // 交互（事件委托，避免把 id 拼进 onclick 字符串里）
+    // ================================================================
+    document.getElementById('conversationList').addEventListener('click', function (e) {
+        const delBtn = e.target.closest('[data-delete]');
+        if (delBtn) {
+            e.stopPropagation();
+            deleteConversation(delBtn.dataset.delete);
+            return;
+        }
+        const item = e.target.closest('.conv-item');
+        if (item) {
+            viewConversation(item.dataset.id);
+        }
+    });
+
+    // 搜索防抖
+    let searchTimer = null;
+    document.getElementById('searchInput').addEventListener('input', function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(renderList, 150);
+    });
+
+    // ================================================================
     // 查看对话详情（跳转到聊天页面加载历史）
     // ================================================================
     function viewConversation(id) {
-        window.location.href = `/chat?conversationId=${id}`;
+        window.location.href = `/chat?conversationId=${encodeURIComponent(id)}`;
     }
 
     // ================================================================
     // 删除对话
     // ================================================================
     async function deleteConversation(id) {
+        const conv = allConversations.find(c => c.id === id);
         const result = await Swal.fire({
             title: '确认删除',
-            text: '删除后不可恢复，确定要删除这条对话记录吗？',
+            html: conv
+                ? `将删除对话「<strong>${esc(conv.title || '未命名对话')}</strong>」<br><small class="text-muted">删除后不可恢复</small>`
+                : '删除后不可恢复，确定要删除这条对话记录吗？',
             icon: 'warning',
             showCancelButton: true,
             confirmButtonText: '确认删除',
@@ -139,11 +402,15 @@
         if (!result.isConfirmed) return;
 
         try {
-            const resp = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
+            const resp = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' });
             const data = await resp.json();
             if (data.success) {
-                Swal.fire('✅ 删除成功', '', 'success');
-                loadHistory();
+                // 本地移除即可，不用整页重拉
+                allConversations = allConversations.filter(c => c.id !== id);
+                renderList();
+                Swal.fire({ title: '已删除', icon: 'success', timer: 1200, showConfirmButton: false });
+            } else {
+                Swal.fire('❌ 删除失败', data.errMessage || '', 'error');
             }
         } catch (err) {
             Swal.fire('❌ 删除失败', err.message, 'error');
