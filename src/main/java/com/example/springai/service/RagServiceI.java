@@ -23,10 +23,11 @@ public interface RagServiceI {
     /**
      * 基于知识库的智能问答（流式输出）
      *
-     * @param question 用户问题
+     * @param question       用户问题
+     * @param conversationId 所属会话 id，用于提问埋点；非流式路径没有会话，传 null
      * @return 流式返回的回答片段
      */
-    Flux<String> chatWithDocumentStream(String question);
+    Flux<String> chatWithDocumentStream(String question, String conversationId);
 
     /**
      * 支持工具调用的问答（手动解析 JSON）

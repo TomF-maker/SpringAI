@@ -1,8 +1,10 @@
 package com.example.springai.controller;
 
 import com.example.springai.entity.Conversation;
+import com.example.springai.entity.KbQuestionLog;
 import com.example.springai.entity.SysUser;
 import com.example.springai.service.ConversationServiceI;
+import com.example.springai.service.QuestionLogServiceI;
 import com.example.springai.service.RagServiceI;
 import com.example.springai.service.UserServiceI;
 import com.example.springai.utils.JwtUtils;
@@ -40,6 +42,8 @@ public class RagController {
     private ConversationServiceI conversationService;
     @Autowired
     private UserServiceI userServiceI;
+    @Autowired
+    private QuestionLogServiceI questionLogService;
 
     /**
      * 普通 RAG 问答（阻塞式）
@@ -61,6 +65,18 @@ public class RagController {
             response.put("answer", answer);
         } catch (Exception e) {
             log.error("❌ RAG问答失败: {}", e.getMessage(), e);
+            // 失败也要留痕，否则看板上看不到任何异常，问题会被静默吞掉
+            try {
+                SysUser user = userServiceI.findByUsernameOrEmail(
+                        SecurityContextHolder.getContext().getAuthentication() == null
+                                ? "" : SecurityContextHolder.getContext().getAuthentication().getName());
+                questionLogService.record(question,
+                        user == null ? null : user.getId(),
+                        user == null ? null : user.getDepartmentId(),
+                        null, KbQuestionLog.HIT_ERROR, 0, null);
+            } catch (Throwable t) {
+                log.warn("异常埋点写入失败: {}", t.getMessage());
+            }
             response.put("success", false);
             response.put("question", question);
             response.put("answer", "处理失败: " + e.getMessage());
@@ -84,8 +100,11 @@ public class RagController {
         try {
             validateToken(authHeader);
         } catch (RuntimeException e) {
-            // 若校验失败，返回错误信息并结束流
-            return Flux.just("data: " + e.getMessage() + "\n\n", "data: [DONE]\n\n");
+            // 若校验失败，返回错误信息并结束流。
+            // 注意：这里只给"内容"，不要自己拼 data: 前缀和结尾空行 ——
+            // Spring 的 SSE 写出器会对 Flux<String> 的每个元素自动包一层，
+            // 手工再拼一次会导致线上出现 "data: data: xxx"。
+            return Flux.just(e.getMessage(), "[DONE]");
         }
 
         log.info("📨 收到流式RAG问答请求: {}", question);
@@ -110,12 +129,13 @@ public class RagController {
         StringBuilder aiAnswer = new StringBuilder();
 
         // 5. 构建流式响应
-        //    先发送一个元数据消息（包含 conversationId），再发送实际的回答流
+        //    先发送一个元数据消息（包含 conversationId），再发送实际的回答流。
+        //    同样只给"内容"，SSE 的 data: 前缀与空行由 Spring 负责。
         Flux<String> metaDataFlux = Flux.just(
-                "data: {\"type\":\"meta\",\"conversationId\":\"" + finalConversationId + "\"}\n\n"
+                "{\"type\":\"meta\",\"conversationId\":\"" + finalConversationId + "\"}"
         );
 
-        Flux<String> aiStream = ragService.chatWithDocumentStream(question)
+        Flux<String> aiStream = ragService.chatWithDocumentStream(question, finalConversationId)
                 .doOnNext(chunk -> aiAnswer.append(chunk))
                 .doOnComplete(() -> {
                     // 保存AI回答到会话

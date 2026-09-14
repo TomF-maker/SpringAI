@@ -6,41 +6,10 @@
     <title>数据看板 - 采购智能助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
+    <link rel="stylesheet" href="/css/app.css?v=1">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-        .wrapper { display: flex; min-height: 100vh; }
-        .sidebar {
-            width: 220px;
-            background: #1a1a2e;
-            color: #fff;
-            padding: 20px 0;
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            overflow-y: auto;
-            z-index: 100;
-        }
-        .sidebar-brand { padding: 0 20px 20px; font-size: 20px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .sidebar-brand i { margin-right: 10px; }
-        .sidebar .nav-link { color: rgba(255,255,255,0.7); padding: 10px 20px; border-radius: 0; transition: all 0.2s; }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); }
-        .sidebar .nav-link i { margin-right: 10px; }
-        .main-content { margin-left: 220px; flex: 1; padding: 20px; min-height: 100vh; }
-        .topbar {
-            background: white;
-            padding: 12px 24px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .topbar .user-info { font-size: 14px; }
-        .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
         .stat-card {
             background: white;
             border-radius: 12px;
@@ -62,44 +31,22 @@
         }
         .chart-card .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
         .chart-container { height: 300px; }
-        @media (max-width: 768px) {
-            .sidebar { width: 60px; }
-            .sidebar-brand span, .sidebar .nav-link span { display: none; }
-            .sidebar .nav-link { text-align: center; padding: 12px 0; }
-            .sidebar .nav-link i { margin-right: 0; font-size: 20px; }
-            .main-content { margin-left: 60px; padding: 12px; }
+        @media (max-width: 991.98px) {
+            .chart-container { height: 240px; }
         }
     </style>
 </head>
 <body>
 
 <div class="wrapper">
-    <!-- 侧边栏 -->
-    <div class="sidebar">
-        <div class="sidebar-brand"><i class="bi bi-cart3"></i> <span>采购助手</span></div>
-        <ul class="nav flex-column">
-            <li class="nav-item"><a class="nav-link active" href="/dashboard"><i class="bi bi-graph-up"></i> <span>数据看板</span></a></li>
-            <li class="nav-item"><a class="nav-link" href="/chat"><i class="bi bi-chat-dots"></i> <span>智能问答</span></a></li>
-            <li class="nav-item">
-                <a class="nav-link" href="/history"><i class="bi bi-clock-history"></i> <span>历史记录</span></a>
-            </li>
-            <li class="nav-item"><a class="nav-link" href="/documents"><i class="bi bi-file-earmark-text"></i> <span>文档管理</span></a></li>
-            <li class="nav-item"><a class="nav-link" href="/users"><i class="bi bi-people"></i> <span>用户管理</span></a></li>
-            <li class="nav-item"><a class="nav-link" href="/departments"><i class="bi bi-diagram-3"></i> <span>部门管理</span></a></li>
-            <li class="nav-item"><a class="nav-link" href="/profile"><i class="bi bi-person"></i> <span>个人中心</span></a></li>
-        </ul>
-    </div>
+    <!-- 侧边栏（共享片段，菜单顺序唯一定义处） -->
+    <div th:replace="~{fragments/layout :: sidebar('dashboard')}"></div>
+    <!-- 移动端遮罩（必须是 .sidebar 的兄弟节点） -->
+    <div th:replace="~{fragments/layout :: backdrop}"></div>
 
     <!-- 主内容 -->
     <div class="main-content">
-        <div class="topbar">
-            <div><span id="pageTitle">📊 数据看板</span></div>
-            <div class="user-info">
-                <i class="bi bi-person-circle"></i>
-                <span id="currentUser">用户</span>
-                <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
-            </div>
-        </div>
+        <div th:replace="~{fragments/layout :: topbar('📊 数据看板')}"></div>
 
         <!-- 统计卡片 -->
         <div class="row g-3" id="statCards">
@@ -148,11 +95,97 @@
                 </div>
             </div>
         </div>
+
+        <!-- ==================== 提问数据 ==================== -->
+        <div class="d-flex justify-content-between align-items-center mt-4 mb-2 flex-wrap gap-2">
+            <span class="fw-bold">提问数据</span>
+            <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-primary active" data-days="7">近 7 天</button>
+                <button type="button" class="btn btn-outline-primary" data-days="30">近 30 天</button>
+            </div>
+        </div>
+
+        <div id="questionUnavailable" class="alert alert-warning d-none py-2">
+            ⚠️ 提问埋点表 <code>kb_question_log</code> 尚未创建，请先执行 <code>doc/schema.sql</code> 中的建表语句。
+        </div>
+
+        <div class="row g-3" id="questionCards">
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-chat-square-text"></i></div>
+                    <div class="number" id="totalQuestions">-</div>
+                    <div class="label">提问总数</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-calendar-day"></i></div>
+                    <div class="number" id="todayQuestions">-</div>
+                    <div class="label">今日提问</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-person-check"></i></div>
+                    <div class="number" id="activeUsers">-</div>
+                    <div class="label">活跃用户<span class="label-window"></span></div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-graph-up-arrow"></i></div>
+                    <div class="number" id="avgQuestions">-</div>
+                    <div class="label">人均提问<span class="label-window"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-lg-8">
+                <div class="chart-card">
+                    <div class="chart-title">📊 提问趋势（含活跃用户）</div>
+                    <div class="chart-container" id="questionTrendChart"></div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="chart-card">
+                    <div class="chart-title">🎯 知识库命中情况</div>
+                    <div class="chart-container" id="hitRateChart"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="chart-card">
+                    <div class="chart-title">🔥 热门问题 Top 10</div>
+                    <div class="chart-container" id="hotQuestionChart" style="height: 380px;"></div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="chart-card">
+                    <div class="chart-title">🧩 回答类型分布</div>
+                    <div class="chart-container" id="answerTypeChart" style="height: 380px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 知识库缺口提示 -->
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="chart-card">
+                    <div class="chart-title">🕳️ 知识库缺口</div>
+                    <div id="kbGapDetail" class="text-muted small">加载中...</div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
+<script src="/js/app.js?v=1"></script>
 <script>
     // ================================================================
     // 认证 & 全局拦截
@@ -177,12 +210,29 @@
         return originalFetch.apply(this, args);
     };
 
-    document.getElementById('currentUser').textContent = localStorage.getItem('realName') || localStorage.getItem('username');
+    // 当前用户显示、退出登录、管理菜单显隐、抽屉开关
+    // 均由 /js/app.js 统一处理
 
-    document.getElementById('logoutBtn').addEventListener('click', function(e) {
-        e.preventDefault();
-        localStorage.clear();
-        window.location.href = '/login';
+    // ================================================================
+    // ECharts 实例管理
+    // 统一注册 + 单个 resize 监听：否则每次重绘（例如切换 7/30 天）
+    // 都会往 window 上再挂一个 resize 回调，越切越卡。
+    // ================================================================
+    const chartRegistry = [];
+
+    function useChart(id) {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        let chart = echarts.getInstanceByDom(el);
+        if (!chart) {
+            chart = echarts.init(el);
+            chartRegistry.push(chart);
+        }
+        return chart;
+    }
+
+    window.addEventListener('resize', () => {
+        chartRegistry.forEach(c => c.resize());
     });
 
     // ================================================================
@@ -213,7 +263,8 @@
     // ECharts 图表
     // ================================================================
     function renderTrendChart(dailyData) {
-        const chart = echarts.init(document.getElementById('trendChart'));
+        const chart = useChart('trendChart');
+        if (!chart) return;
         const dates = dailyData.map(item => item.date);
         const counts = dailyData.map(item => item.count);
 
@@ -254,22 +305,33 @@
             }]
         };
         chart.setOption(option);
-        window.addEventListener('resize', () => chart.resize());
+        chart.resize();
     }
 
     function renderPieChart(typeData) {
-        const chart = echarts.init(document.getElementById('pieChart'));
+        const chart = useChart('pieChart');
+        if (!chart) return;
         const data = Object.keys(typeData).map(key => ({
             name: key.toUpperCase(),
             value: typeData[key]
         }));
+
+        // 窄屏把图例移到底部，避免与饼图挤在一起
+        const narrow = window.matchMedia('(max-width: 575.98px)').matches;
 
         const option = {
             tooltip: {
                 trigger: 'item',
                 formatter: '{b}: {c} ({d}%)'
             },
-            legend: {
+            legend: narrow ? {
+                orient: 'horizontal',
+                bottom: 0,
+                left: 'center',
+                itemWidth: 12,
+                itemHeight: 12,
+                textStyle: { fontSize: 12 }
+            } : {
                 orient: 'vertical',
                 right: '5%',
                 top: 'center',
@@ -280,6 +342,7 @@
             series: [{
                 type: 'pie',
                 radius: ['40%', '70%'],
+                center: narrow ? ['50%', '42%'] : ['50%', '50%'],
                 avoidLabelOverlap: false,
                 itemStyle: {
                     borderRadius: 6,
@@ -295,13 +358,210 @@
             }]
         };
         chart.setOption(option);
-        window.addEventListener('resize', () => chart.resize());
+        chart.resize();
+    }
+
+    // ================================================================
+    // 提问数据统计
+    // ================================================================
+    let questionDays = 7;
+
+    document.querySelectorAll('[data-days]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('[data-days]').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            questionDays = parseInt(this.dataset.days, 10);
+            loadQuestionStatistics();
+        });
+    });
+
+    async function loadQuestionStatistics() {
+        try {
+            const resp = await fetch(
+                `/api/dashboard/question-statistics?days=${questionDays}&topN=10`);
+            if (!resp.ok) throw new Error('加载失败');
+            const data = await resp.json();
+
+            if (data.unavailable) {
+                document.getElementById('questionUnavailable').classList.remove('d-none');
+            }
+
+            // 人均类指标必须标明窗口，否则"今天的提问 ÷ 一个月的活跃用户"没有意义
+            const suffix = `（近${data.days}天）`;
+            document.querySelectorAll('.label-window').forEach(el => el.textContent = suffix);
+
+            document.getElementById('totalQuestions').textContent = data.totalQuestions || 0;
+            document.getElementById('todayQuestions').textContent = data.todayQuestions || 0;
+            document.getElementById('activeUsers').textContent = data.activeUsers || 0;
+            document.getElementById('avgQuestions').textContent =
+                Number(data.avgQuestionsPerUser || 0).toFixed(1);
+
+            renderQuestionTrend(data.dailyQuestions || []);
+            renderHitRate(data);
+            renderHotQuestions(data.hotQuestions || []);
+            renderAnswerTypes(data);
+            renderKbGap(data);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    function renderQuestionTrend(daily) {
+        const chart = useChart('questionTrendChart');
+        if (!chart) return;
+        chart.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['提问数', '活跃用户'], top: 0, textStyle: { fontSize: 12 } },
+            grid: { left: '3%', right: '4%', bottom: '3%', top: '18%', containLabel: true },
+            xAxis: {
+                type: 'category',
+                data: daily.map(i => i.date),
+                boundaryGap: false,
+                axisLine: { lineStyle: { color: '#e2e8f0' } }
+            },
+            yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#f1f3f5' } } },
+            series: [
+                {
+                    name: '提问数', type: 'line', smooth: true,
+                    data: daily.map(i => i.count),
+                    lineStyle: { color: '#1a73e8', width: 3 },
+                    itemStyle: { color: '#1a73e8' },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(26, 115, 232, 0.3)' },
+                            { offset: 1, color: 'rgba(26, 115, 232, 0.02)' }
+                        ])
+                    }
+                },
+                {
+                    name: '活跃用户', type: 'line', smooth: true,
+                    data: daily.map(i => i.activeUsers),
+                    lineStyle: { color: '#34a853', width: 2 },
+                    itemStyle: { color: '#34a853' }
+                }
+            ]
+        });
+        chart.resize();
+    }
+
+    function renderHitRate(data) {
+        const chart = useChart('hitRateChart');
+        if (!chart) return;
+        const attempts = (data.docAnswerCount || 0) + (data.kbGapCount || 0);
+        const pieData = attempts === 0
+            ? [{ name: '暂无检索数据', value: 1, itemStyle: { color: '#e2e8f0' } }]
+            : [
+                { name: '检索到文档', value: data.docAnswerCount, itemStyle: { color: '#34a853' } },
+                { name: '未检索到（缺口）', value: data.kbGapCount, itemStyle: { color: '#ea4335' } }
+            ];
+
+        chart.setOption({
+            tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+            legend: { bottom: 0, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12 } },
+            series: [{
+                type: 'pie',
+                radius: ['45%', '70%'],
+                center: ['50%', '42%'],
+                label: {
+                    show: true,
+                    position: 'center',
+                    formatter: attempts === 0 ? '暂无数据' : `命中率\n${data.hitRate}%`,
+                    fontSize: 16,
+                    fontWeight: 'bold',
+                    color: '#1e293b'
+                },
+                itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+                data: pieData
+            }]
+        });
+        chart.resize();
+    }
+
+    function renderHotQuestions(hot) {
+        const chart = useChart('hotQuestionChart');
+        if (!chart) return;
+        if (!hot.length) {
+            chart.clear();
+            return;
+        }
+        // ECharts 的类目轴从下往上画，倒序后出现次数最多的才会在顶部
+        const ordered = hot.slice().reverse();
+        chart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: '3%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
+            xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#f1f3f5' } } },
+            yAxis: {
+                type: 'category',
+                data: ordered.map(h => h.question.length > 18
+                    ? h.question.substring(0, 18) + '…' : h.question),
+                axisLabel: { fontSize: 12 },
+                axisLine: { lineStyle: { color: '#e2e8f0' } }
+            },
+            series: [{
+                type: 'bar',
+                data: ordered.map(h => h.count),
+                barWidth: '55%',
+                itemStyle: {
+                    color: '#1a73e8',
+                    borderRadius: [0, 4, 4, 0]
+                },
+                label: { show: true, position: 'right', fontSize: 12 }
+            }]
+        });
+        chart.resize();
+    }
+
+    function renderAnswerTypes(data) {
+        const chart = useChart('answerTypeChart');
+        if (!chart) return;
+        const items = [
+            { name: '本地知识库命中', value: data.localHitCount || 0, color: '#9c27b0' },
+            { name: '文档问答', value: data.docAnswerCount || 0, color: '#1a73e8' },
+            { name: '未检索到（缺口）', value: data.kbGapCount || 0, color: '#ea4335' },
+            { name: '工具调用', value: data.toolCallCount || 0, color: '#fbbc04' },
+            { name: '处理异常', value: data.errorCount || 0, color: '#64748b' }
+        ].filter(i => i.value > 0);
+
+        chart.setOption({
+            tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+            legend: { bottom: 0, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12 } },
+            series: [{
+                type: 'pie',
+                roseType: 'radius',
+                radius: ['30%', '68%'],
+                center: ['50%', '42%'],
+                itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+                label: { fontSize: 12, formatter: '{b}\n{c}' },
+                data: items.length ? items.map(i => ({
+                    name: i.name, value: i.value, itemStyle: { color: i.color }
+                })) : [{ name: '暂无数据', value: 1, itemStyle: { color: '#e2e8f0' } }]
+            }]
+        });
+        chart.resize();
+    }
+
+    function renderKbGap(data) {
+        const el = document.getElementById('kbGapDetail');
+        const attempts = (data.docAnswerCount || 0) + (data.kbGapCount || 0);
+        if (attempts === 0) {
+            el.innerHTML = '当前窗口内还没有产生检索类提问。';
+            return;
+        }
+        el.innerHTML = `
+            近 ${data.days} 天共 ${attempts} 次检索类提问，其中
+            <strong class="text-danger">${data.kbGapCount}</strong> 次没有检索到任何文档
+            （占 ${(100 - data.hitRate).toFixed(1)}%）。
+            本地知识库直接命中 ${data.localHitCount} 次，工具调用 ${data.toolCallCount} 次，
+            平均响应耗时 ${data.avgLatencyMs} 毫秒。
+            <br>缺口偏大通常说明对应主题的文档还没上传，可以结合「热门问题」定位要补什么。
+        `;
     }
 
     // ================================================================
     // 初始化
     // ================================================================
     loadStatistics();
+    loadQuestionStatistics();
 </script>
 </body>
 </html>

@@ -23,6 +23,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import com.example.springai.utils.PhoneUtils;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -245,7 +246,19 @@ public class UserServiceImpl implements UserServiceI {
             user.setRealName(request.getRealName());
         }
         if (request.getPhone() != null) {
-            user.setPhone(request.getPhone());
+            // 手机号是异地登录校验的第二因子，必须唯一（此前只查了邮箱，漏了手机号）。
+            // 同时归一化，否则 "+8613800138000" 和 "13800138000" 会被当成两个号码。
+            String phone = PhoneUtils.normalize(request.getPhone());
+            if (phone == null) {
+                throw new RuntimeException("手机号格式不正确");
+            }
+            SysUser existingPhone = userMapper.selectOne(
+                    new QueryWrapper<SysUser>().eq("phone", phone).ne("id", userId)
+            );
+            if (existingPhone != null) {
+                throw new RuntimeException("手机号已被其他用户使用");
+            }
+            user.setPhone(phone);
         }
         if (request.getEmail() != null) {
             // 检查邮箱是否已被其他用户使用

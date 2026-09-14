@@ -2,22 +2,38 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - 采购智能助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- SweetAlert2 CSS & JS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        body { background: #f5f7fa; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        /* 100dvh + 内边距：手机上浏览器工具栏伸缩时卡片不会被裁掉，也不会贴边 */
+        body {
+            background: #f5f7fa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding: 16px;
+        }
         .login-card { max-width: 400px; width: 100%; padding: 30px; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
         .login-card h3 { text-align: center; margin-bottom: 24px; }
         .login-card .btn-primary { width: 100%; }
         .login-card .links { text-align: center; margin-top: 16px; }
+        .code-row { display: flex; gap: 8px; }
+        .code-row input { flex: 1; }
+        .code-row button { flex-shrink: 0; }
+        .hint { font-size: 13px; color: #64748b; }
     </style>
 </head>
 <body>
 <div class="login-card">
     <h3>🛒 采购智能助手</h3>
+
+    <!-- ============ 第一步：账号密码 ============ -->
     <form id="loginForm">
         <div class="mb-3">
             <label class="form-label">用户名 / 邮箱</label>
@@ -30,41 +46,232 @@
         <div id="loginError" class="alert alert-danger d-none"></div>
         <button type="submit" class="btn btn-primary">登 录</button>
     </form>
-    <div class="links">
+
+    <!-- ============ 第二步：手机验证码（异地登录 / 补绑手机号） ============ -->
+    <form id="verifyForm" class="d-none">
+        <div class="alert alert-warning py-2" id="verifyTip"></div>
+
+        <!-- BIND 场景才需要填手机号；VERIFY 场景号码由服务端解析，不回传给前端 -->
+        <div class="mb-3 d-none" id="phoneGroup">
+            <label class="form-label">手机号</label>
+            <input type="tel" id="bindPhone" class="form-control" placeholder="请输入手机号" maxlength="11">
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">短信验证码</label>
+            <div class="code-row">
+                <input type="text" id="smsCode" class="form-control" placeholder="6 位验证码"
+                       maxlength="6" inputmode="numeric">
+                <button type="button" class="btn btn-outline-primary" id="sendCodeBtn">获取验证码</button>
+            </div>
+        </div>
+
+        <div id="verifyError" class="alert alert-danger d-none"></div>
+        <button type="submit" class="btn btn-primary">验 证</button>
+        <div class="links">
+            <a href="#" id="backToLogin">返回重新登录</a>
+        </div>
+    </form>
+
+    <div class="links" id="registerLink">
         <a href="/register">还没有账号？立即注册</a>
     </div>
 </div>
 
 <script>
-    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+    const loginForm = document.getElementById('loginForm');
+    const verifyForm = document.getElementById('verifyForm');
+    const loginError = document.getElementById('loginError');
+    const verifyError = document.getElementById('verifyError');
+    const verifyTip = document.getElementById('verifyTip');
+    const phoneGroup = document.getElementById('phoneGroup');
+    const bindPhone = document.getElementById('bindPhone');
+    const smsCode = document.getElementById('smsCode');
+    const sendCodeBtn = document.getElementById('sendCodeBtn');
+    const registerLink = document.getElementById('registerLink');
+
+    // 当前登录挑战
+    let challengeId = null;
+    let challengeScene = null;
+    let countdownTimer = null;
+
+    function showError(el, message) {
+        el.textContent = message;
+        el.classList.remove('d-none');
+    }
+
+    function saveAndGo(data) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('username', data.username);
+        localStorage.setItem('realName', data.realName);
+        localStorage.setItem('userId', data.userId);
+        window.location.href = '/chat';
+    }
+
+    function resetToLogin() {
+        challengeId = null;
+        challengeScene = null;
+        if (countdownTimer) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+        }
+        sendCodeBtn.disabled = false;
+        sendCodeBtn.textContent = '获取验证码';
+        smsCode.value = '';
+        if (bindPhone) bindPhone.value = '';
+        verifyForm.classList.add('d-none');
+        loginForm.classList.remove('d-none');
+        registerLink.classList.remove('d-none');
+    }
+
+    // ================================================================
+    // 第一步：账号密码
+    // ================================================================
+    loginForm.addEventListener('submit', async function (e) {
         e.preventDefault();
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
-        const errorDiv = document.getElementById('loginError');
-        errorDiv.classList.add('d-none');
+        loginError.classList.add('d-none');
 
         try {
             const response = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({
+                    username: document.getElementById('username').value,
+                    password: document.getElementById('password').value
+                })
             });
             const data = await response.json();
-            if (response.ok) {
-                // 存储 Token 和用户信息
-                localStorage.setItem('token', data.token);
-                localStorage.setItem('username', data.username);
-                localStorage.setItem('realName', data.realName);
-                localStorage.setItem('userId', data.userId);
-                window.location.href = '/chat';
-            } else {
-                errorDiv.textContent = data.message || '登录失败，请重试';
-                errorDiv.classList.remove('d-none');
+
+            if (!response.ok) {
+                showError(loginError, data.message || '登录失败，请重试');
+                return;
             }
+
+            // 关键分支：密码通过了，但需要手机验证码二次验证。
+            // 如果不判断这个标志位，就会把字符串 "undefined" 当成 token 存起来再跳转。
+            if (data.requirePhoneVerify) {
+                enterVerifyStep(data);
+                return;
+            }
+
+            saveAndGo(data);
         } catch (err) {
-            errorDiv.textContent = '网络错误，请稍后重试';
-            errorDiv.classList.remove('d-none');
+            showError(loginError, '网络错误，请稍后重试');
         }
+    });
+
+    function enterVerifyStep(data) {
+        challengeId = data.challengeId;
+        challengeScene = data.scene;
+
+        loginForm.classList.add('d-none');
+        registerLink.classList.add('d-none');
+        verifyForm.classList.remove('d-none');
+        verifyError.classList.add('d-none');
+
+        if (challengeScene === 'BIND') {
+            verifyTip.textContent = '为保障账号安全，请先绑定手机号。';
+            phoneGroup.classList.remove('d-none');
+        } else {
+            verifyTip.textContent = '检测到本次登录来自新的网络环境，请使用手机号 '
+                + (data.maskedPhone || '') + ' 完成验证。';
+            phoneGroup.classList.add('d-none');
+        }
+    }
+
+    // ================================================================
+    // 第二步：发送验证码
+    // ================================================================
+    sendCodeBtn.addEventListener('click', async function () {
+        verifyError.classList.add('d-none');
+
+        const body = { challengeId: challengeId };
+        if (challengeScene === 'BIND') {
+            const phone = bindPhone.value.trim();
+            if (!/^1[3-9]\d{9}$/.test(phone)) {
+                showError(verifyError, '请输入正确的手机号');
+                return;
+            }
+            body.phone = phone;
+            body.scene = 'bind';
+        }
+
+        sendCodeBtn.disabled = true;
+        try {
+            const response = await fetch('/api/auth/send-sms-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                showError(verifyError, data.message || '验证码发送失败');
+                sendCodeBtn.disabled = false;
+                return;
+            }
+            startCountdown();
+        } catch (err) {
+            showError(verifyError, '网络错误，请稍后重试');
+            sendCodeBtn.disabled = false;
+        }
+    });
+
+    function startCountdown() {
+        let seconds = 60;
+        sendCodeBtn.textContent = seconds + ' 秒后重发';
+        countdownTimer = setInterval(function () {
+            seconds -= 1;
+            if (seconds <= 0) {
+                clearInterval(countdownTimer);
+                countdownTimer = null;
+                sendCodeBtn.disabled = false;
+                sendCodeBtn.textContent = '获取验证码';
+            } else {
+                sendCodeBtn.textContent = seconds + ' 秒后重发';
+            }
+        }, 1000);
+    }
+
+    // ================================================================
+    // 第二步：提交验证码
+    // ================================================================
+    verifyForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        verifyError.classList.add('d-none');
+
+        const code = smsCode.value.trim();
+        if (!/^\d{6}$/.test(code)) {
+            showError(verifyError, '请输入 6 位数字验证码');
+            return;
+        }
+
+        const body = { challengeId: challengeId, code: code };
+        if (challengeScene === 'BIND') {
+            body.phone = bindPhone.value.trim();
+        }
+
+        try {
+            const response = await fetch('/api/auth/verify-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                showError(verifyError, data.message || '验证失败，请重试');
+                return;
+            }
+            saveAndGo(data);
+        } catch (err) {
+            showError(verifyError, '网络错误，请稍后重试');
+        }
+    });
+
+    document.getElementById('backToLogin').addEventListener('click', function (e) {
+        e.preventDefault();
+        resetToLogin();
     });
 </script>
 </body>

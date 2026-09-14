@@ -2,13 +2,23 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>注册 - 采购智能助手</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">、
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- SweetAlert2 CSS & JS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        body { background: #f5f7fa; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        /* 100dvh + 内边距：手机上浏览器工具栏伸缩时卡片不会被裁掉，也不会贴边 */
+        body {
+            background: #f5f7fa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding: 16px;
+        }
         .register-card { max-width: 450px; width: 100%; padding: 30px; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
         .register-card h3 { text-align: center; margin-bottom: 24px; }
         .register-card .btn-primary { width: 100%; }
@@ -26,10 +36,40 @@
             <label class="form-label">用户名</label>
             <input type="text" id="username" class="form-control" placeholder="请设置用户名" required>
         </div>
-        <div class="mb-3">
-            <label class="form-label">邮箱</label>
-            <input type="email" id="email" class="form-control" placeholder="请输入邮箱" required>
-        </div>
+
+        <!-- ============ 短信开启：手机号 + 短信验证码 ============ -->
+        <th:block th:if="${smsEnabled}">
+            <div class="mb-3">
+                <label class="form-label">手机号</label>
+                <input type="tel" id="phone" class="form-control" placeholder="请输入手机号"
+                       maxlength="11" inputmode="numeric" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">短信验证码</label>
+                <div class="code-row">
+                    <input type="text" id="code" class="form-control" placeholder="请输入6位验证码"
+                           maxlength="6" inputmode="numeric" required>
+                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary">获取验证码</button>
+                </div>
+            </div>
+        </th:block>
+
+        <!-- ============ 短信关闭：邮箱 + 邮箱验证码 ============ -->
+        <th:block th:unless="${smsEnabled}">
+            <div class="mb-3">
+                <label class="form-label">邮箱</label>
+                <input type="email" id="email" class="form-control" placeholder="请输入邮箱" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">邮箱验证码</label>
+                <div class="code-row">
+                    <input type="text" id="code" class="form-control" placeholder="请输入6位验证码"
+                           maxlength="6" inputmode="numeric" required>
+                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary">获取验证码</button>
+                </div>
+            </div>
+        </th:block>
+
         <div class="mb-3">
             <label class="form-label">密码</label>
             <input type="password" id="password" class="form-control" placeholder="至少8位" required minlength="8">
@@ -38,17 +78,13 @@
             <label class="form-label">真实姓名（可选）</label>
             <input type="text" id="realName" class="form-control" placeholder="请输入真实姓名">
         </div>
-        <div class="mb-3">
-            <label class="form-label">手机号（可选）</label>
-            <input type="text" id="phone" class="form-control" placeholder="请输入手机号">
+
+        <!-- 短信关闭时邮箱已经在上面的必填块里了，这里只在开启时作为可选项出现 -->
+        <div class="mb-3" th:if="${smsEnabled}">
+            <label class="form-label">邮箱（可选，用于找回密码）</label>
+            <input type="email" id="email" class="form-control" placeholder="请输入邮箱">
         </div>
-        <div class="mb-3">
-            <label class="form-label">验证码</label>
-            <div class="code-row">
-                <input type="text" id="code" class="form-control" placeholder="请输入6位验证码" maxlength="6" required>
-                <button type="button" id="sendCodeBtn" class="btn btn-outline-primary">获取验证码</button>
-            </div>
-        </div>
+
         <div id="registerError" class="alert alert-danger d-none"></div>
         <button type="submit" class="btn btn-primary">注 册</button>
     </form>
@@ -57,55 +93,91 @@
     </div>
 </div>
 
-<script>
+<script th:inline="javascript">
+    // 由服务端注入：决定走「手机号 + 短信验证码」还是「邮箱 + 邮箱验证码」
+    const SMS_ENABLED = /*[[${smsEnabled}]]*/ false;
+
     let countdown = 0;
     const sendBtn = document.getElementById('sendCodeBtn');
+    const emailInput = document.getElementById('email');
 
-    document.getElementById('sendCodeBtn').addEventListener('click', async function() {
+    function startCountdown() {
+        countdown = 60;
+        sendBtn.disabled = true;
+        const interval = setInterval(() => {
+            countdown--;
+            sendBtn.textContent = countdown + 's';
+            if (countdown <= 0) {
+                clearInterval(interval);
+                sendBtn.textContent = '获取验证码';
+                sendBtn.disabled = false;
+            }
+        }, 1000);
+    }
+
+    sendBtn.addEventListener('click', async function () {
         if (countdown > 0) return;
-        const email = document.getElementById('email').value;
-        if (!email) {
-            alert('请先填写邮箱');
-            return;
+
+        let url, body;
+        if (SMS_ENABLED) {
+            const phone = document.getElementById('phone').value.trim();
+            if (!/^1[3-9]\d{9}$/.test(phone)) {
+                alert('请先填写正确的手机号');
+                return;
+            }
+            url = '/api/auth/send-sms-code';
+            body = { phone: phone, scene: 'register' };
+        } else {
+            const email = emailInput.value.trim();
+            if (!email) {
+                alert('请先填写邮箱');
+                return;
+            }
+            url = '/api/auth/send-code';
+            body = { email: email, type: 'register' };
         }
+
+        sendBtn.disabled = true;
         try {
-            const response = await fetch('/api/auth/send-code', {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, type: 'register' })
+                body: JSON.stringify(body)
             });
             const data = await response.json();
-            if (response.ok) {
-                alert('验证码已发送到您的邮箱');
-                countdown = 60;
-                sendBtn.disabled = true;
-                const interval = setInterval(() => {
-                    countdown--;
-                    sendBtn.textContent = countdown + 's';
-                    if (countdown <= 0) {
-                        clearInterval(interval);
-                        sendBtn.textContent = '获取验证码';
-                        sendBtn.disabled = false;
-                    }
-                }, 1000);
+
+            // 两个接口都可能是 HTTP 200 但 body 里 code != 200
+            // （send-code 一直如此，send-sms-code 抛异常时走的是 HTTP 500 + code:500）。
+            // 所以统一看 body 里的 code，不看 response.ok。
+            if (data.code === 200) {
+                alert(SMS_ENABLED ? '验证码已发送' : '验证码已发送到您的邮箱');
+                startCountdown();
             } else {
                 alert(data.message || '发送失败');
+                sendBtn.disabled = false;
             }
         } catch (err) {
             alert('网络错误');
+            sendBtn.disabled = false;
         }
     });
 
-    document.getElementById('registerForm').addEventListener('submit', async function(e) {
+    document.getElementById('registerForm').addEventListener('submit', async function (e) {
         e.preventDefault();
+
         const data = {
             username: document.getElementById('username').value,
-            email: document.getElementById('email').value,
+            code: document.getElementById('code').value,
             password: document.getElementById('password').value,
-            realName: document.getElementById('realName').value,
-            phone: document.getElementById('phone').value,
-            code: document.getElementById('code').value
+            realName: document.getElementById('realName').value
         };
+        if (SMS_ENABLED) {
+            data.phone = document.getElementById('phone').value;
+            data.email = emailInput.value || null;
+        } else {
+            data.email = emailInput.value;
+        }
+
         const errorDiv = document.getElementById('registerError');
         errorDiv.classList.add('d-none');
 
@@ -116,7 +188,10 @@
                 body: JSON.stringify(data)
             });
             const result = await response.json();
-            if (response.ok) {
+
+            // 注意：注册接口校验失败时返回的仍是 HTTP 200，只是 body 里 code=400。
+            // 所以不能只看 response.ok，否则失败也会提示"注册成功"。
+            if (result.code === 200) {
                 alert('注册成功！请登录');
                 window.location.href = '/login';
             } else {

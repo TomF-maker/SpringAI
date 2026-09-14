@@ -1,9 +1,12 @@
 package com.example.springai.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.springai.entity.KbQuestionLog;
 import com.example.springai.entity.SysUser;
 import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.tool.ToolExecutor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.qdrant.client.QdrantClient;
 import io.qdrant.client.grpc.Common;
 import io.qdrant.client.grpc.JsonWithInt;
@@ -20,6 +23,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.SignalType;
 import org.springframework.ai.vectorstore.filter.Filter;
 
 import java.util.*;
@@ -48,8 +52,12 @@ public class RagServiceImpl implements RagServiceI {
     private QdrantClient qdrantClient;
     @Autowired
     private EmbeddingModel embeddingModel;
+    @Autowired
+    private QuestionLogServiceI questionLogService;
     @Value("${spring.ai.vectorstore.qdrant.collection-name:purchase_docs}")
     private String collectionName;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
     /**
      * 阻塞式 RAG 问答
      */
@@ -58,18 +66,23 @@ public class RagServiceImpl implements RagServiceI {
         log.info("🔍 收到RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
 
+        SysUser user = loadCurrentUser();
+
         // 优先匹配本地知识库
         String localAnswer = localKnowledgeService.match(question);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
+            recordQuestion(question, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
+                    System.currentTimeMillis() - startTime);
             return localAnswer;
         }
 
         // 1. 检索相关文档片段
-        Long userId = getCurrentUserId();
-        List<Document> relevantDocs = retrieveDocuments(question, userId);
+        List<Document> relevantDocs = retrieveDocuments(question, user);
 
         if (relevantDocs.isEmpty()) {
+            recordQuestion(question, user, null, KbQuestionLog.HIT_MISS, 0, null,
+                    System.currentTimeMillis() - startTime);
             return "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。";
         }
 
@@ -83,8 +96,9 @@ public class RagServiceImpl implements RagServiceI {
                 .call()
                 .content();
 
-        long endTime = System.currentTimeMillis();
-        log.info("✅ RAG问答完成，耗时: {}ms", endTime - startTime);
+        long elapsed = System.currentTimeMillis() - startTime;
+        recordQuestion(question, user, null, KbQuestionLog.HIT_DOC, relevantDocs.size(), null, elapsed);
+        log.info("✅ RAG问答完成，耗时: {}ms", elapsed);
 
         return answer;
     }
@@ -93,37 +107,64 @@ public class RagServiceImpl implements RagServiceI {
      * 流式 RAG 问答
      */
     @Override
-    public Flux<String> chatWithDocumentStream(String question) {
+    public Flux<String> chatWithDocumentStream(String question, String conversationId) {
         log.info("🔍 收到流式RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
+
+        // 在请求线程上把用户信息取出来并捕获成局部变量。
+        // SecurityContextHolder 在本项目里就是普通 ThreadLocal
+        // （没有开启 Hooks.enableAutomaticContextPropagation），
+        // 完成回调运行在 reactor 线程上，那时它已经是空的。
+        SysUser user = loadCurrentUser();
+        final Long userId = user == null ? null : user.getId();
+        final Long departmentId = user == null ? null : user.getDepartmentId();
+        final String convId = conversationId;
 
         // 优先匹配本地知识库
         String localAnswer = localKnowledgeService.match(question);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，返回流式");
+            Long logId = questionLogService.record(question, userId, departmentId, convId,
+                    KbQuestionLog.HIT_LOCAL, 0, null);
+            questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
             return Flux.just(localAnswer);
         }
 
         // 1. 检索相关文档片段（阻塞操作，但很快）
-        Long userId = getCurrentUserId();
-        List<Document> relevantDocs = retrieveDocuments(question, userId);
+        List<Document> relevantDocs = retrieveDocuments(question, user);
 
         if (relevantDocs.isEmpty()) {
+            Long logId = questionLogService.record(question, userId, departmentId, convId,
+                    KbQuestionLog.HIT_MISS, 0, null);
+            questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
             return Flux.just("抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。");
         }
 
         // 2. 构建 Prompt
         String prompt = buildPrompt(relevantDocs, question);
 
-        // 3. 流式调用大模型
+        // 3. 先落库再返回流：客户端中途断开时 doOnComplete 不会触发，
+        //    但这条提问已经被记录下来了。
+        final Long logId = questionLogService.record(question, userId, departmentId, convId,
+                KbQuestionLog.HIT_DOC, relevantDocs.size(), null);
+
+        // 4. 流式调用大模型
         return chatClientBuilder.build()
                 .prompt()
                 .user(prompt)
                 .stream()
                 .content()
                 .doOnComplete(() -> {
-                    long endTime = System.currentTimeMillis();
-                    log.info("✅ 流式RAG问答完成，耗时: {}ms", endTime - startTime);
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    log.info("✅ 流式RAG问答完成，耗时: {}ms", elapsed);
+                    questionLogService.markCompleted(logId, elapsed);
+                })
+                .doOnError(e -> questionLogService.markStatus(logId, KbQuestionLog.STATUS_ERROR))
+                .doFinally(signal -> {
+                    // doOnComplete 在取消时不会触发，所以取消要单独处理
+                    if (signal == SignalType.CANCEL) {
+                        questionLogService.markStatus(logId, KbQuestionLog.STATUS_CANCELLED);
+                    }
                 });
     }
 
@@ -135,11 +176,16 @@ public class RagServiceImpl implements RagServiceI {
      */
     public String chatWithTool(String userMessage) {
         log.info("🔧 进入工具调用模式，问题: {}", userMessage);
+        // 这个方法此前完全没有计时，补上才能统计工具类问答的耗时
+        long startTime = System.currentTimeMillis();
+        SysUser user = loadCurrentUser();
 
         // 优先匹配本地知识库
         String localAnswer = localKnowledgeService.match(userMessage);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
+            recordQuestion(userMessage, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
+                    System.currentTimeMillis() - startTime);
             return localAnswer;
         }
 
@@ -176,25 +222,66 @@ public class RagServiceImpl implements RagServiceI {
             // 4. 第二次调用，将工具结果融入回答
             String finalPrompt = String.format("""
                     用户问题：%s
-                    
+
                     工具返回的结果：%s
-                    
+
                     请根据工具返回的结果，用自然流畅的中文回答用户的问题。
                     如果工具结果无法回答，请友好地说明。
                     """, userMessage, toolResult);
 
-            return chatClient.prompt()
+            String answer = chatClient.prompt()
                     .user(finalPrompt)
                     .call()
                     .content();
+
+            recordQuestion(userMessage, user, null, KbQuestionLog.HIT_TOOL, 0,
+                    extractToolName(firstResponse), System.currentTimeMillis() - startTime);
+            return answer;
         }
 
         // 如果不是工具调用，直接返回
+        recordQuestion(userMessage, user, null, KbQuestionLog.HIT_DOC, 0, null,
+                System.currentTimeMillis() - startTime);
         return firstResponse;
     }
 
-    private List<Document> retrieveDocuments(String question, Long userId) {
-        SysUser user = userMapper.selectById(userId);
+    /** 从工具调用的 JSON 里取出工具名，取不到就返回 null。 */
+    private String extractToolName(String toolCallJson) {
+        try {
+            JsonNode node = objectMapper.readTree(toolCallJson);
+            if (node.has("name")) {
+                return node.get("name").asText();
+            }
+            Iterator<String> names = node.fieldNames();
+            while (names.hasNext()) {
+                String field = names.next();
+                if ("getWeather".equals(field) || "getAINews".equals(field)) {
+                    return field;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("解析工具名失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 记录一次提问。任何失败都只记日志，绝不影响问答本身。
+     */
+    private void recordQuestion(String question, SysUser user, String conversationId,
+                                String hitType, int retrievedCount, String toolName, long elapsedMs) {
+        try {
+            Long logId = questionLogService.record(question,
+                    user == null ? null : user.getId(),
+                    user == null ? null : user.getDepartmentId(),
+                    conversationId, hitType, retrievedCount, toolName);
+            questionLogService.markCompleted(logId, elapsedMs);
+        } catch (Throwable t) {
+            log.warn("提问埋点失败: {}", t.getMessage());
+        }
+    }
+
+    private List<Document> retrieveDocuments(String question, SysUser user) {
         if (user == null) {
             return Collections.emptyList();
         }
@@ -300,19 +387,23 @@ public class RagServiceImpl implements RagServiceI {
 
 
 
-    private Long getCurrentUserId() {
+    /**
+     * 取当前登录用户。
+     *
+     * <p>必须在请求线程上调用并捕获结果 —— 流式路径的完成回调运行在 reactor
+     * 线程上，那时 SecurityContextHolder 是空的。
+     *
+     * @return 未登录或用户不存在时返回 null
+     */
+    private SysUser loadCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {
-            throw new RuntimeException("用户未登录");
+            return null;
         }
         String username = authentication.getName();
-        SysUser user = userMapper.selectOne(
+        return userMapper.selectOne(
                 new QueryWrapper<SysUser>().eq("username", username).or().eq("email", username)
         );
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
-        }
-        return user.getId();
     }
 
 

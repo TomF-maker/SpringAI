@@ -1,10 +1,20 @@
 package com.example.springai.controller;
 
 import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 public class PageController {
+
+    /**
+     * 短信总开关。注册页要据此决定渲染「手机号 + 短信验证码」还是
+     * 「邮箱 + 邮箱验证码」表单，所以在服务端就把标志位传下去，
+     * 避免前端先渲染错表单再切换。
+     */
+    @Value("${app.sms.enabled:false}")
+    private boolean smsEnabled;
 
     @GetMapping("/")
     public String root() {
@@ -17,7 +27,8 @@ public class PageController {
     }
 
     @GetMapping("/register")
-    public String register() {
+    public String register(Model model) {
+        model.addAttribute("smsEnabled", smsEnabled);
         return "register";
     }
 

@@ -22,6 +22,9 @@ public class UserController {
     @Autowired
     private UserServiceI userService;
 
+    @Autowired
+    private com.example.springai.service.LoginSecurityServiceI loginSecurityService;
+
     @GetMapping
     public Map<String, Object> listUsers(
             @RequestParam(defaultValue = "1") int page,
@@ -73,6 +76,21 @@ public class UserController {
         result.put("success", true);
         result.put("message", "密码已重置");
         result.put("newPassword", newPassword);  // 返回明文密码
+        return result;
+    }
+
+    /**
+     * 逃生通道：清除某用户的异地登录状态（网段白名单 + last_login_ip）。
+     *
+     * <p>用户换手机号、收不到短信、或在前端被卡住时，管理员用它解锁，
+     * 之后该用户下一次登录会被当作首次登录直接放行。
+     */
+    @PutMapping("/{id}/unlock-login")
+    public Map<String, Object> unlockLogin(@PathVariable Long id) {
+        loginSecurityService.resetUser(id);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("message", "已清除该用户的异地登录状态");
         return result;
     }
 

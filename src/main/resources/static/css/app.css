@@ -1,0 +1,173 @@
+/* ============================================
+   采购智能助手 - 共享布局样式
+   侧边栏 / 顶栏 / 主内容区 / 移动端抽屉
+
+   本文件由 templates/fragments/layout.html 的片段配套使用。
+   页面专属样式仍留在各页 <style> 中，并在本文件之后加载，以便覆盖。
+   ============================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f7fa;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+.wrapper { display: flex; min-height: 100vh; min-height: 100dvh; }
+
+/* ============================================
+   侧边栏
+   ============================================ */
+.sidebar {
+    width: 220px;
+    background: #1a1a2e;
+    color: #fff;
+    padding: 20px 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 100;
+}
+
+.sidebar-brand {
+    padding: 0 20px 20px;
+    font-size: 20px;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.sidebar-brand i { margin-right: 10px; }
+
+.sidebar .nav-link {
+    color: rgba(255,255,255,0.7);
+    padding: 10px 20px;
+    border-radius: 0;
+    transition: all 0.2s;
+}
+.sidebar .nav-link:hover,
+.sidebar .nav-link.active {
+    color: #fff;
+    background: rgba(255,255,255,0.1);
+}
+.sidebar .nav-link i { margin-right: 10px; }
+
+/* 菜单分组分割线 */
+.sidebar .nav-divider {
+    flex: none;
+    height: 1px;
+    margin: 8px 20px;
+    padding: 0;
+    list-style: none;
+    background: rgba(255,255,255,0.1);
+}
+
+/* 仅管理员可见的菜单项：由 app.js 设置 body.is-admin 后显示 */
+[data-admin-only] { display: none; }
+body.is-admin [data-admin-only] { display: block; }
+
+/* ============================================
+   顶栏
+   ============================================ */
+.topbar {
+    background: white;
+    padding: 12px 24px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.topbar-title {
+    font-size: 16px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.topbar .user-info {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    white-space: nowrap;
+}
+.topbar .user-info i { margin-right: 6px; }
+.topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
+
+/* 汉堡按钮：默认隐藏，仅窄屏出现 */
+.drawer-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    font-size: 22px;
+    line-height: 1;
+    color: #1e293b;
+    cursor: pointer;
+    border-radius: 6px;
+}
+.drawer-toggle:hover { background: #f1f5f9; }
+
+/* ============================================
+   主内容区
+   ============================================ */
+.main-content {
+    margin-left: 220px;
+    flex: 1;
+    padding: 20px;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-width: 0;
+}
+
+/* ============================================
+   移动端遮罩
+   必须是 .sidebar 的兄弟节点：.sidebar 上的 transform 会成为
+   position:fixed 后代的包含块，加上 overflow-y:auto，嵌套会被裁掉。
+   ============================================ */
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15,23,42,0.45);
+    z-index: 99;
+}
+
+/* ============================================
+   平板 / 手机：抽屉式侧边栏（替换原先的 60px 纯图标条）
+   断点取 Bootstrap lg，与 dashboard 的 col-lg-* 栅格堆叠对齐。
+   ============================================ */
+@media (max-width: 991.98px) {
+    .sidebar {
+        width: 260px;
+        transform: translateX(-100%);
+        visibility: hidden;
+        transition: transform 0.25s ease, visibility 0.25s ease;
+        box-shadow: 2px 0 16px rgba(0,0,0,0.2);
+    }
+    body.drawer-open .sidebar {
+        transform: translateX(0);
+        visibility: visible;
+    }
+    body.drawer-open .sidebar-backdrop { display: block; }
+
+    /* 滚动锁必须留在这个 media query 内部：写在外面的话，
+       手机打开抽屉后旋转/放大到桌面宽度会残留，导致页面永久无法滚动。 */
+    body.drawer-open { overflow: hidden; }
+
+    .main-content { margin-left: 0; padding: 12px; }
+    .drawer-toggle { display: inline-flex; }
+    .topbar { padding: 10px 14px; }
+}

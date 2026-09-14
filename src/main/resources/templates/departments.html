@@ -2,73 +2,37 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>部门管理 - 采购智能助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
+    <link rel="stylesheet" href="/css/app.css?v=1">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-        .wrapper { display: flex; min-height: 100vh; }
-        .sidebar { width: 220px; background: #1a1a2e; color: #fff; padding: 20px 0; position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto; z-index: 100; }
-        .sidebar-brand { padding: 0 20px 20px; font-size: 20px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .sidebar-brand i { margin-right: 10px; }
-        .sidebar .nav-link { color: rgba(255,255,255,0.7); padding: 10px 20px; border-radius: 0; transition: all 0.2s; }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); }
-        .sidebar .nav-link i { margin-right: 10px; }
-        .main-content { margin-left: 220px; flex: 1; padding: 20px; min-height: 100vh; }
-        .topbar { background: white; padding: 12px 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-        .topbar .user-info { font-size: 14px; }
-        .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
         .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-        .tree-item { cursor: pointer; padding: 8px 0; border-bottom: 1px solid #f1f3f5; display: flex; justify-content: space-between; align-items: center; }
+        .tree-item { cursor: pointer; padding: 8px 0; border-bottom: 1px solid #f1f3f5; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; }
         .tree-item:hover { background: #f8f9fa; }
-        .tree-item .dept-name { font-weight: 500; }
+        .tree-item .dept-name { font-weight: 500; overflow-wrap: anywhere; }
+        .tree-item .dept-actions { display: flex; flex-wrap: wrap; gap: 4px; }
         .tree-item .dept-actions .btn { padding: 2px 8px; font-size: 12px; }
         .tree-indent { display: inline-block; width: 20px; }
         .employee-select-modal .modal-body { max-height: 60vh; overflow-y: auto; }
         .employee-row { cursor: pointer; }
         .employee-row:hover { background: #e8f0fe; }
-        @media (max-width: 768px) {
-            .sidebar { width: 60px; }
-            .sidebar-brand span, .sidebar .nav-link span { display: none; }
-            .sidebar .nav-link { text-align: center; padding: 12px 0; }
-            .sidebar .nav-link i { margin-right: 0; font-size: 20px; }
-            .main-content { margin-left: 60px; padding: 12px; }
-        }
     </style>
 </head>
 <body>
 
 <div class="wrapper">
-    <!-- 侧边栏 -->
-    <div class="sidebar">
-        <div class="sidebar-brand"><i class="bi bi-cart3"></i> <span>采购助手</span></div>
-        <ul class="nav flex-column">
-            <li class="nav-item"><a class="nav-link" href="/chat"><i class="bi bi-chat-dots"></i> <span>智能问答</span></a></li>
-            <li class="nav-item"><a class="nav-link" href="/documents"><i class="bi bi-file-earmark-text"></i> <span>文档管理</span></a></li>
-            <li class="nav-item"><a class="nav-link" href="/users"><i class="bi bi-people"></i> <span>用户管理</span></a></li>
-            <li class="nav-item">
-                <a class="nav-link" href="/history"><i class="bi bi-clock-history"></i> <span>历史记录</span></a>
-            </li>
-            <li class="nav-item"><a class="nav-link active" href="/departments"><i class="bi bi-diagram-3"></i> <span>部门管理</span></a></li>
-            <li class="nav-item"><a class="nav-link" href="/profile"><i class="bi bi-person"></i> <span>个人中心</span></a></li>
-            <li class="nav-item" id="dashboardNav" style="display:none;">
-                <a class="nav-link" href="/dashboard"><i class="bi bi-graph-up"></i> <span>数据看板</span></a>
-            </li>
-        </ul>
-    </div>
+    <!-- 侧边栏（共享片段，菜单顺序唯一定义处） -->
+    <div th:replace="~{fragments/layout :: sidebar('departments')}"></div>
+    <!-- 移动端遮罩（必须是 .sidebar 的兄弟节点） -->
+    <div th:replace="~{fragments/layout :: backdrop}"></div>
 
     <!-- 主内容 -->
     <div class="main-content">
-        <div class="topbar">
-            <div><span id="pageTitle">🏢 部门管理</span></div>
-            <div class="user-info">
-                <i class="bi bi-person-circle"></i>
-                <span id="currentUser">用户</span>
-                <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
-            </div>
-        </div>
+        <div th:replace="~{fragments/layout :: topbar('🏢 部门管理')}"></div>
 
         <div class="content-card">
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -189,6 +153,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
+<script src="/js/app.js?v=1"></script>
 <script>
     // ===== 认证 & 全局拦截 =====
     const token = localStorage.getItem('token');
@@ -196,11 +162,6 @@
     if (localStorage.getItem('username') !== 'admin') {
         alert('⚠️ 仅管理员可访问此页面');
         window.location.href = '/chat';
-    }
-    // 显示管理员专属菜单
-    if (localStorage.getItem('username') === 'admin') {
-        const nav = document.getElementById('dashboardNav');
-        if (nav) nav.style.display = 'block';
     }
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
@@ -215,13 +176,8 @@
         return originalFetch.apply(this, args);
     };
 
-    document.getElementById('currentUser').textContent = localStorage.getItem('realName') || localStorage.getItem('username');
-
-    document.getElementById('logoutBtn').addEventListener('click', function(e) {
-        e.preventDefault();
-        localStorage.clear();
-        window.location.href = '/login';
-    });
+    // 当前用户显示、退出登录、管理菜单显隐、抽屉开关
+    // 均由 /js/app.js 统一处理
 
     // ===== 加载部门树 =====
     let allDepts = [];

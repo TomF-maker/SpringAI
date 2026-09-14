@@ -20,6 +20,8 @@ public class SysUser {
     private Integer status;     // 0=禁用 1=启用
     private Integer isAdmin;    // 0=否 1=是
     private LocalDateTime lastLoginTime;
+    /** 上次登录的网段令牌（IPv4 /24 或 IPv6 /64），不是完整 IP。见 IpUtils.toPrefix */
+    private String lastLoginIp;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
     @TableField(fill = FieldFill.INSERT_UPDATE)

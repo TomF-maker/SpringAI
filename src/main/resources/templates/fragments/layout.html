@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>layout</title>
+</head>
+<body>
+
+<!-- ============================================================
+     侧边栏
+     菜单顺序的唯一来源：业务 → 管理 → 账户。
+     调用：th:replace="~{fragments/layout :: sidebar('chat')}"
+     ============================================================ -->
+<div th:fragment="sidebar(active)" class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+        <i class="bi bi-cart3"></i> <span>采购助手</span>
+    </div>
+    <ul class="nav flex-column">
+
+        <!-- ---------- 业务功能 ---------- -->
+        <li class="nav-item">
+            <a class="nav-link" th:classappend="${active == 'chat'} ? 'active' : ''" href="/chat">
+                <i class="bi bi-chat-dots"></i> <span>智能问答</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" th:classappend="${active == 'history'} ? 'active' : ''" href="/history">
+                <i class="bi bi-clock-history"></i> <span>历史记录</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" th:classappend="${active == 'documents'} ? 'active' : ''" href="/documents">
+                <i class="bi bi-file-earmark-text"></i> <span>文档管理</span>
+            </a>
+        </li>
+
+        <!-- ---------- 管理功能（仅 admin） ---------- -->
+        <li class="nav-divider" data-admin-only role="separator"></li>
+        <li class="nav-item" data-admin-only>
+            <a class="nav-link" th:classappend="${active == 'dashboard'} ? 'active' : ''" href="/dashboard">
+                <i class="bi bi-graph-up"></i> <span>数据看板</span>
+            </a>
+        </li>
+        <li class="nav-item" data-admin-only>
+            <a class="nav-link" th:classappend="${active == 'users'} ? 'active' : ''" href="/users">
+                <i class="bi bi-people"></i> <span>用户管理</span>
+            </a>
+        </li>
+        <li class="nav-item" data-admin-only>
+            <a class="nav-link" th:classappend="${active == 'departments'} ? 'active' : ''" href="/departments">
+                <i class="bi bi-diagram-3"></i> <span>部门管理</span>
+            </a>
+        </li>
+
+        <!-- ---------- 账户 ---------- -->
+        <li class="nav-divider" role="separator"></li>
+        <li class="nav-item">
+            <a class="nav-link" th:classappend="${active == 'profile'} ? 'active' : ''" href="/profile">
+                <i class="bi bi-person"></i> <span>个人中心</span>
+            </a>
+        </li>
+
+    </ul>
+</div>
+
+<!-- ============================================================
+     移动端遮罩
+     必须是 .sidebar 的兄弟节点，不能嵌进 .sidebar：
+     .sidebar 上的 transform 会成为 position:fixed 后代的包含块，
+     加上它已有的 overflow-y:auto，嵌套的遮罩会被裁剪并错位。
+     调用：th:replace="~{fragments/layout :: backdrop}"
+     ============================================================ -->
+<div th:fragment="backdrop" class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+<!-- ============================================================
+     顶栏
+     汉堡按钮与标题包在 .topbar-left 中：.topbar 是 space-between
+     的两子元素布局，直接加第三个子元素会把整条顶栏摊开。
+     调用：th:replace="~{fragments/layout :: topbar('📄 文档管理')}"
+     ============================================================ -->
+<div th:fragment="topbar(pageTitle)" class="topbar">
+    <div class="topbar-left">
+        <button type="button" class="drawer-toggle" id="drawerToggle"
+                aria-controls="sidebar" aria-expanded="false" aria-label="打开菜单">
+            <i class="bi bi-list"></i>
+        </button>
+        <span class="topbar-title" id="pageTitle" th:text="${pageTitle}">页面</span>
+    </div>
+    <div class="user-info">
+        <i class="bi bi-person-circle"></i>
+        <span id="currentUser">用户</span>
+        <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
+    </div>
+</div>
+
+</body>
+</html>
