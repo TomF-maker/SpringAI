@@ -17,11 +17,10 @@
     var MOBILE_QUERY = '(max-width: 991.98px)';
 
     function init() {
-        // ---------- 管理员标识：驱动 [data-admin-only] 的显隐 ----------
-        document.body.classList.toggle(
-            'is-admin',
-            localStorage.getItem('username') === 'admin'
-        );
+        // 注意：body 上的 is-authed / is-admin（驱动菜单显隐）**不在这里设置**。
+        // 它们由 templates/fragments/layout.html 侧边栏片段开头的内联脚本尽早写入 ——
+        // app.js 在 body 末尾执行，那时菜单已经渲染完，游客会先看到完整菜单再收起。
+        // 菜单显隐的判定只有那一处。
 
         // ---------- 当前用户 ----------
         var userEl = document.getElementById('currentUser');

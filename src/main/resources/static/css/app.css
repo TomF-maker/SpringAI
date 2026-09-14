@@ -65,7 +65,15 @@ body {
     background: rgba(255,255,255,0.1);
 }
 
-/* 仅管理员可见的菜单项：由 app.js 设置 body.is-admin 后显示 */
+/* 仅登录用户可见的菜单项（历史记录 / 文档管理 / 个人中心）。
+   游客默认隐藏，只留「智能问答」—— 那几项点进去都会被各自的 token 检查弹回登录页。
+
+   body 上的 is-authed / is-admin 由 templates/fragments/layout.html 侧边栏片段
+   开头的内联脚本设置（不是 app.js，那样会先渲染再收起、闪一下）。 */
+[data-auth-only] { display: none; }
+body.is-authed [data-auth-only] { display: block; }
+
+/* 仅管理员可见的菜单项。is-admin 蕴含 is-authed */
 [data-admin-only] { display: none; }
 body.is-admin [data-admin-only] { display: block; }
 

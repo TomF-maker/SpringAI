@@ -12,23 +12,42 @@
      调用：th:replace="~{fragments/layout :: sidebar('chat')}"
      ============================================================ -->
 <div th:fragment="sidebar(active)" class="sidebar" id="sidebar">
+    <!-- ============================================================
+         尽早把登录态写到 body 上（data-auth-only / data-admin-only 靠它显隐）。
+
+         为什么放在这里而不是 /js/app.js：app.js 在 body 末尾加载，等它执行时
+         侧边栏已经渲染完了 —— 游客会先看到完整菜单再"唰"地收起，闪一下。
+         这段脚本位于侧边栏最前面，下面的菜单项解析出来时类已经就位，不会闪。
+
+         这是菜单显隐的唯一判定处，app.js 不再重复设置。
+         ============================================================ -->
+    <script>
+        (function () {
+            var authed = !!localStorage.getItem('token');
+            document.body.classList.toggle('is-authed', authed);
+            // 管理员一定是已登录的，所以 is-admin 蕴含 is-authed
+            document.body.classList.toggle('is-admin', localStorage.getItem('username') === 'admin');
+        })();
+    </script>
+
     <div class="sidebar-brand">
         <i class="bi bi-cart3"></i> <span>采购助手</span>
     </div>
     <ul class="nav flex-column">
 
         <!-- ---------- 业务功能 ---------- -->
+        <!-- 智能问答对游客开放，所以不带 data-auth-only -->
         <li class="nav-item">
             <a class="nav-link" th:classappend="${active == 'chat'} ? 'active' : ''" href="/chat">
                 <i class="bi bi-chat-dots"></i> <span>智能问答</span>
             </a>
         </li>
-        <li class="nav-item">
+        <li class="nav-item" data-auth-only>
             <a class="nav-link" th:classappend="${active == 'history'} ? 'active' : ''" href="/history">
                 <i class="bi bi-clock-history"></i> <span>历史记录</span>
             </a>
         </li>
-        <li class="nav-item">
+        <li class="nav-item" data-auth-only>
             <a class="nav-link" th:classappend="${active == 'documents'} ? 'active' : ''" href="/documents">
                 <i class="bi bi-file-earmark-text"></i> <span>文档管理</span>
             </a>
@@ -53,8 +72,9 @@
         </li>
 
         <!-- ---------- 账户 ---------- -->
-        <li class="nav-divider" role="separator"></li>
-        <li class="nav-item">
+        <!-- 分割线也要跟着隐藏，否则个人中心藏起来后会剩一条孤零零的线 -->
+        <li class="nav-divider" data-auth-only role="separator"></li>
+        <li class="nav-item" data-auth-only>
             <a class="nav-link" th:classappend="${active == 'profile'} ? 'active' : ''" href="/profile">
                 <i class="bi bi-person"></i> <span>个人中心</span>
             </a>
