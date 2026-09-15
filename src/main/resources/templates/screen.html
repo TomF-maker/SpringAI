@@ -193,7 +193,11 @@
             backgroundColor: 'transparent',
             tooltip: {
                 trigger: 'item',
-                formatter: p => `${p.name}<br/>${p.value == null ? '无数据' : p.value + ' 条'}`
+                // 没有数据的省份，ECharts 给的 p.value 是 **NaN 而不是 null** ——
+                // 写 `p.value == null` 会判为 false（NaN == null 是 false），
+                // 然后 `NaN + ' 条'` 就渲染成"NaN条"。
+                // Number.isFinite 同时挡住 NaN / null / undefined / Infinity，是唯一稳妥的判法。
+                formatter: p => `${p.name}<br/>${Number.isFinite(p.value) ? p.value + ' 条' : '0 条'}`
             },
             visualMap: {
                 min: 0,
