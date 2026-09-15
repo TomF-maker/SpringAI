@@ -16,6 +16,9 @@ import com.example.springai.entity.SysUserRole;
 import com.example.springai.mapper.SysRoleMapper;
 import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.mapper.SysUserRoleMapper;
+import com.example.springai.exception.BizException;
+import com.example.springai.service.CompanyServiceI;
+import com.example.springai.service.DepartmentServiceI;
 import com.example.springai.service.EmailServiceI;
 import com.example.springai.service.LoginLogServiceI;
 import com.example.springai.service.LoginSecurityServiceI;
@@ -83,6 +86,12 @@ public class AuthController {
 
     @Autowired
     private LoginLogServiceI loginLogService;
+
+    @Autowired
+    private DepartmentServiceI departmentService;
+
+    @Autowired
+    private CompanyServiceI companyService;
 
     /**
      * 短信功能总开关（{@code app.sms.enabled}）。
@@ -298,13 +307,32 @@ public class AuthController {
             }
         }
 
-        // 5. 创建新用户
+        // 5. 公司：按信用代码找到或创建。
+        // **不是"查重后拒绝"** —— 同一家公司的同事必然填同一个信用代码，
+        // 那样做等于一家公司只能注册进去一个人（第一版的 bug）。
+        String companyName = request.getCompanyName() == null ? null : request.getCompanyName().trim();
+        Long companyId;
+        try {
+            companyId = companyService.resolveOrCreate(companyName, request.getCreditCode());
+        } catch (BizException e) {
+            return Response.fail(ErrorCode.BAD_REQUEST, e.getMessage());
+        }
+
+        // 6. 创建新用户
         SysUser user = new SysUser();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(email);
         user.setPhone(phone);
         user.setRealName(request.getRealName() != null ? request.getRealName() : request.getUsername());
+        user.setCompanyId(companyId);
+        // 部门归属：公司名正好是个部门就用它，否则挂总公司。走的是退让逻辑，
+        // 但外面仍包一层 —— 注册不该因为"部门表没配好"这种无关原因失败
+        try {
+            user.setDepartmentId(departmentService.resolveRegistrationDeptId(companyName));
+        } catch (Exception e) {
+            log.warn("解析注册归属部门失败，本次不设部门: {}", e.getMessage());
+        }
         user.setUserType(1);           // 默认内部员工
         user.setStatus(1);             // 默认启用
         user.setIsAdmin(0);            // 默认非管理员
@@ -313,7 +341,7 @@ public class AuthController {
 
         userMapper.insert(user);
 
-        // 6. 分配默认角色（USER角色，role_id = 3）
+        // 7. 分配默认角色（USER角色，role_id = 3）
         SysUserRole userRole = new SysUserRole();
         userRole.setUserId(user.getId());
         userRole.setRoleId(3L);        // USER 角色的 ID（根据你的数据库实际值调整）

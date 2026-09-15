@@ -101,6 +101,26 @@
     </div>
 </div>
 
+<!-- ===== 用户详情模态框 ===== -->
+<!-- 复用已有的 GET /api/users/{id}，后端一直有这个接口，
+     只是界面上原来没有入口（openRoleModal 调它只为取 roleIds） -->
+<div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-person-vcard"></i> 用户详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="detailBody">
+                <div class="text-center text-muted py-4">⏳ 加载中...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ===== 会员管理模态框 ===== -->
 <div class="modal fade" id="membershipModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -219,7 +239,7 @@
         } catch (err) {
             console.error('加载用户列表失败:', err);
             document.getElementById('userTableBody').innerHTML =
-                `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${err.message}</td></tr>`;
+                `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
         }
     }
 
@@ -254,15 +274,16 @@
             html += `
                 <tr>
                     <td class="fw-bold">${u.id}</td>
-                    <td><span class="fw-medium">${u.username}</span></td>
-                    <td><a href="mailto:${u.email}" class="text-decoration-none">${u.email}</a></td>
-                    <td>${u.realName || '-'}</td>
-                    <td>${dept}</td>
-                    <td>${roleNames}</td>
+                    <td><span class="fw-medium">${esc(u.username)}</span></td>
+                    <td><a href="mailto:${esc(u.email)}" class="text-decoration-none">${esc(u.email)}</a></td>
+                    <td>${u.realName ? esc(u.realName) : '-'}</td>
+                    <td>${esc(dept)}</td>
+                    <td>${esc(roleNames)}</td>
                     <td><span class="user-status ${statusClass}">${statusText}</span></td>
                     <td style="font-size:12px; color:#64748b;">${created}</td>
                     <td>
                         <div class="d-flex flex-wrap gap-1">
+                            <button class="btn btn-sm btn-outline-secondary action-btn" onclick="openDetailModal(${u.id})" title="查看详情">详情</button>
                             <button class="btn btn-sm btn-outline-primary action-btn" onclick="openRoleModal(${u.id})" title="分配角色" ${disabledAttr}>分配角色</button>
                             <button class="btn btn-sm btn-outline-${u.status === 1 ? 'danger' : 'success'} action-btn" onclick="toggleStatus(${u.id}, ${u.status})" title="${u.status === 1 ? '禁用' : '启用'}" ${disabledAttr}>${u.status === 1 ? '禁用' : '启用'}</button>
                             <button class="btn btn-sm btn-outline-warning action-btn" onclick="resetPassword(${u.id})" title="重置密码" ${disabledAttr}>重置密码</button>
@@ -389,7 +410,7 @@
             if (data.success) {
                 await Swal.fire({
                     title: '✅ 重置成功',
-                    html: `新密码：<strong>${data.data.newPassword}</strong><br><small>请复制后安全告知用户。</small>`,
+                    html: `新密码：<strong>${esc(data.data.newPassword)}</strong><br><small>请复制后安全告知用户。</small>`,
                     icon: 'success'
                 });
                 loadUsers(currentPage);
@@ -404,6 +425,83 @@
     // ================================================================
     // 11. 分配角色
     // ================================================================
+    // ================================================================
+    // 用户详情
+    // ================================================================
+    /**
+     * HTML 转义。
+     *
+     * **所有插进 innerHTML 的、来源不是本文件自己算出来的字符串，都要过这里。**
+     * 用户名 / 邮箱 / 真实姓名都是用户注册时自己填的，直接插进模板会被当成标签执行 ——
+     * 比如把 realName 填成 `<img src=x onerror=...>`，管理员一打开用户列表就中招。
+     * 公司名、角色名虽然只有管理员能改，也一样走这里（纵深防御，且没有成本）。
+     *
+     * 数字（id、count、status 之类）不需要，但也别把它们塞进 string 之外的上下文。
+     */
+    function esc(v) {
+        return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    let detailModalInstance = null;
+
+    async function openDetailModal(userId) {
+        const body = document.getElementById('detailBody');
+        body.innerHTML = '<div class="text-center text-muted py-4">⏳ 加载中...</div>';
+        if (!detailModalInstance) {
+            detailModalInstance = new bootstrap.Modal(document.getElementById('detailModal'));
+        }
+        detailModalInstance.show();
+
+        try {
+            const resp = await fetch(`/api/users/${userId}`);
+            const data = await resp.json();
+            if (!data.success || !data.data) throw new Error(data.errMessage || '加载失败');
+            body.innerHTML = renderDetail(data.data);
+        } catch (err) {
+            body.innerHTML = `<div class="text-danger py-3">❌ 加载失败：${esc(err.message)}</div>`;
+        }
+    }
+
+    function renderDetail(u) {
+        const userTypeMap = {1: '内部员工', 2: '外部用户'};
+        const dash = '<span class="text-muted">-</span>';
+        const row = (label, value) =>
+            `<dt class="col-sm-3 text-muted fw-normal">${label}</dt><dd class="col-sm-9">${value}</dd>`;
+
+        // 信用代码用等宽字体 + 复制按钮：18 位无分隔的字母数字，
+        // 在比例字体下极易看串（0/O、1/I 尤其）
+        const credit = u.creditCode
+            ? `<span style="font-family: ui-monospace, Consolas, monospace; letter-spacing:1px;">${esc(u.creditCode)}</span>`
+              + ` <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline" onclick="copyCredit('${esc(u.creditCode)}')">复制</button>`
+            : dash;
+
+        return `<dl class="row mb-0">
+            ${row('用户名', esc(u.username))}
+            ${row('真实姓名', u.realName ? esc(u.realName) : dash)}
+            ${row('邮箱', u.email ? esc(u.email) : dash)}
+            ${row('手机号', u.phone ? esc(u.phone) : dash)}
+            ${row('部门', u.departmentName ? esc(u.departmentName) : '<span class="text-muted">未分配</span>')}
+            ${row('所属公司', u.companyName ? esc(u.companyName) : '<span class="text-muted">未填写</span>')}
+            ${row('统一社会信用代码', credit)}
+            ${row('用户类型', userTypeMap[u.userType] || '未知')}
+            ${row('角色', u.roleNames ? esc(u.roleNames) : dash)}
+            ${row('状态', u.status === 1 ? '启用' : '禁用')}
+            ${row('最后登录', u.lastLoginTime ? new Date(u.lastLoginTime).toLocaleString() : dash)}
+            ${row('注册时间', u.createdAt ? new Date(u.createdAt).toLocaleString() : dash)}
+        </dl>`;
+    }
+
+    function copyCredit(code) {
+        navigator.clipboard.writeText(code).then(() => {
+            Swal.fire({toast: true, position: 'top-end', timer: 1500,
+                showConfirmButton: false, icon: 'success', title: '已复制'});
+        }).catch(() => {
+            Swal.fire('复制失败', '请手动选中复制', 'warning');
+        });
+    }
+
     async function openRoleModal(userId) {
         currentUserId = userId;
         document.getElementById('roleUserId').value = userId;
@@ -433,9 +531,9 @@
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" value="${r.id}" id="role_${r.id}" ${checked}>
                         <label class="form-check-label" for="role_${r.id}">
-                            <span class="badge bg-secondary">${r.roleCode}</span>
-                            ${r.roleName}
-                            ${r.description ? `<span class="text-muted small">（${r.description}）</span>` : ''}
+                            <span class="badge bg-secondary">${esc(r.roleCode)}</span>
+                            ${esc(r.roleName)}
+                            ${r.description ? `<span class="text-muted small">（${esc(r.description)}）</span>` : ''}
                         </label>
                     </div>
                 `;

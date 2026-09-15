@@ -35,7 +35,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // 放行所有页面和静态资源
-                        .requestMatchers("/", "/history", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/feedback-review", "/css/**", "/js/**", "/error").permitAll()
+                        // 页面路由白名单。**新增页面必须加到这里** ——
+                        // JwtAuthenticationFilter 只处理 /api/ 开头的请求，
+                        // 页面请求拿不到任何 Authentication，落到
+                        // .anyRequest().authenticated() 上就是 403。
+                        .requestMatchers("/", "/history", "/login", "/register", "/chat", "/documents", "/users", "/departments", "/profile", "/dashboard", "/screen", "/feedback-review", "/css/**", "/js/**", "/error").permitAll()
                         // 放行认证 API（/api/test/** 已随测试接口一起删除）
                         .requestMatchers("/api/auth/**").permitAll()
                         // 放行 RAG 问答：允许未登录用户提问（按 IP 每日限额在

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地域大屏 - 采购智能助手</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!--
+      这一页刻意**不引** /css/app.css 和 /js/app.js：
+      那两个是给带侧边栏的后台页面用的（body 布局、抽屉、#currentUser / #logoutBtn），
+      在全屏投屏页上既用不上又可能互相打架。这一页自带样式，自成一体。
+    -->
+    <style>
+        :root {
+            --bg: #0b1220;
+            --panel: #111c31;
+            --panel-border: #1e293b;
+            --text: #e2e8f0;
+            --text-dim: #94a3b8;
+            --accent: #38bdf8;
+            --warn: #fbbf24;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; background: var(--bg); color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            min-height: 100vh;
+        }
+        .screen-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 28px; border-bottom: 1px solid var(--panel-border); flex-wrap: wrap; gap: 12px;
+        }
+        .screen-header h1 { font-size: 20px; margin: 0; font-weight: 600; letter-spacing: 1px; }
+        .screen-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .range-group { display: flex; gap: 6px; }
+        .range-group button {
+            background: transparent; color: var(--text-dim); border: 1px solid var(--panel-border);
+            border-radius: 6px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+        }
+        .range-group button:hover { color: var(--text); border-color: var(--accent); }
+        .range-group button.active { background: rgba(56,189,248,.15); color: var(--accent); border-color: var(--accent); }
+        .back-link { color: var(--text-dim); font-size: 13px; text-decoration: none; }
+        .back-link:hover { color: var(--accent); }
+
+        .screen-body {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px 28px 32px;
+        }
+        @media (max-width: 1100px) { .screen-body { grid-template-columns: 1fr; } }
+
+        .panel {
+            background: var(--panel); border: 1px solid var(--panel-border);
+            border-radius: 12px; padding: 16px 18px 8px;
+        }
+        .panel h2 { font-size: 16px; margin: 0 0 10px; font-weight: 600; }
+        .panel-meta { font-size: 13px; color: var(--text-dim); margin-bottom: 6px; line-height: 1.7; }
+        .panel-meta b { color: var(--text); font-weight: 600; }
+        .panel-meta .warn { color: var(--warn); }
+        .map { width: 100%; height: 420px; }
+        .cities { width: 100%; height: 300px; }
+        .cities-title { font-size: 13px; color: var(--text-dim); margin: 4px 0 0; }
+        .empty { text-align: center; color: var(--text-dim); padding: 40px 0; font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<header class="screen-header">
+    <h1>🗺️ 地域分布大屏</h1>
+    <div class="screen-controls">
+        <div class="range-group" id="rangeGroup">
+            <button data-days="7">近 7 天</button>
+            <button data-days="30" class="active">近 30 天</button>
+            <button data-days="90">近 90 天</button>
+        </div>
+        <a class="back-link" href="/dashboard">← 返回数据看板</a>
+    </div>
+</header>
+
+<main class="screen-body">
+    <section class="panel">
+        <h2>👤 用户登录地域</h2>
+        <div class="panel-meta" id="loginMeta">加载中…</div>
+        <div class="map" id="loginMap"></div>
+        <div class="cities-title">城市排行</div>
+        <div class="cities" id="loginCities"></div>
+    </section>
+
+    <section class="panel">
+        <h2>💬 用户提问地域</h2>
+        <div class="panel-meta" id="questionMeta">加载中…</div>
+        <div class="map" id="questionMap"></div>
+        <div class="cities-title">城市排行</div>
+        <div class="cities" id="questionCities"></div>
+    </section>
+</main>
+
+<script>
+    // ================================================================
+    // 认证（与 dashboard.html 保持一致的写法）
+    // 真正的门槛是后端的 @PreAuthorize("hasRole('ADMIN')")，这里只是别让人看到空屏
+    // ================================================================
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = '/login';
+    if (localStorage.getItem('username') !== 'admin') {
+        alert('⚠️ 仅管理员可访问地域大屏');
+        window.location.href = '/chat';
+    }
+
+    const originalFetch = window.fetch;
+    window.fetch = function (...args) {
+        const url = args[0];
+        if (typeof url === 'string' && url.includes('/api/auth/')) {
+            return originalFetch.apply(this, args);
+        }
+        const options = args[1] || {};
+        options.headers = options.headers || {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+        args[1] = options;
+        return originalFetch.apply(this, args);
+    };
+
+    // ================================================================
+    // ECharts 实例管理（同 dashboard.html：统一注册 + 单个 resize 监听）
+    // ================================================================
+    const chartRegistry = [];
+    function useChart(id) {
+        const dom = document.getElementById(id);
+        if (!dom) return null;
+        let chart = echarts.getInstanceByDom(dom);
+        if (!chart) {
+            chart = echarts.init(dom, null, {renderer: 'canvas'});
+            chartRegistry.push(chart);
+        }
+        return chart;
+    }
+    window.addEventListener('resize', () => chartRegistry.forEach(c => c.resize()));
+
+    let currentDays = 30;
+
+    // 地名 → 数值，供地图 series 使用
+    const MAP_NAME = 'china';
+
+    // ================================================================
+    // 地图注册：GeoJSON 放在本地 static/js/china.json，不走 CDN
+    // 地图挂了整屏就是空的，而且不会有任何报错 —— 所以宁可自己托管
+    // ================================================================
+    let mapReady = null;
+    function ensureMap() {
+        if (mapReady) return mapReady;
+        mapReady = fetch('/js/china.json')
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then(geo => {
+                echarts.registerMap(MAP_NAME, geo);
+            })
+            .catch(err => {
+                console.error('中国地图 GeoJSON 加载失败', err);
+                throw err;
+            });
+        return mapReady;
+    }
+
+    // ================================================================
+    // 渲染
+    // ================================================================
+    function renderMeta(elId, title, d) {
+        const el = document.getElementById(elId);
+        if (d.unavailable) {
+            el.innerHTML = `<span class="warn">⚠️ 暂不可用</span> —— 数据表或归属地列还没建好，` +
+                           `请先执行 doc/schema.sql 的 2026-09-15 段`;
+            return;
+        }
+        // 未解析量必须显示：高德覆盖不全，不显示的话会以为剩下的是境外流量
+        const parts = [
+            `共 <b>${d.total || 0}</b> 条`,
+            `已解析 <b>${d.resolved || 0}</b>`,
+            `未解析 <b>${d.unresolved || 0}</b>`
+        ];
+        if (d.unmapped > 0) {
+            parts.push(`<span class="warn">地图未识别 ${d.unmapped}</span>`);
+        }
+        el.innerHTML = parts.join(' · ');
+    }
+
+    function renderProvinceMap(domId, provinces, accent) {
+        const chart = useChart(domId);
+        if (!chart) return;
+        const data = (provinces || []).map(p => ({name: p.name, value: p.count}));
+        const max = data.reduce((m, d) => Math.max(m, d.value), 0);
+
+        chart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'item',
+                formatter: p => `${p.name}<br/>${p.value == null ? '无数据' : p.value + ' 条'}`
+            },
+            visualMap: {
+                min: 0,
+                max: Math.max(max, 1),
+                left: 8, bottom: 8,
+                text: ['多', '少'],
+                textStyle: {color: '#94a3b8', fontSize: 11},
+                inRange: {color: ['#1e3a5f', accent]},
+                calculable: false,
+                itemWidth: 12, itemHeight: 70
+            },
+            series: [{
+                type: 'map',
+                map: MAP_NAME,
+                roam: false,
+                // 没数据的省用深灰 —— 别用默认的浅色，深底上会像"高亮"
+                itemStyle: {areaColor: '#1e293b', borderColor: '#334155'},
+                emphasis: {
+                    label: {show: true, color: '#fff'},
+                    itemStyle: {areaColor: '#475569'}
+                },
+                label: {show: false},
+                data: data
+            }]
+        });
+        chart.resize();
+    }
+
+    function renderCityRanking(domId, cities, accent) {
+        const chart = useChart(domId);
+        if (!chart) return;
+        if (!cities || !cities.length) {
+            chart.clear();
+            document.getElementById(domId).innerHTML =
+                '<div class="empty">暂无城市数据</div>';
+            return;
+        }
+        // ECharts 类目轴从下往上画，倒序后最多的在顶部
+        const ordered = cities.slice().reverse();
+        chart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+            grid: {left: '3%', right: '10%', bottom: '3%', top: '3%', containLabel: true},
+            xAxis: {
+                type: 'value', minInterval: 1,
+                axisLabel: {color: '#94a3b8', fontSize: 11},
+                splitLine: {lineStyle: {color: '#1e293b'}}
+            },
+            yAxis: {
+                type: 'category',
+                data: ordered.map(c => c.name),
+                axisLabel: {color: '#cbd5e1', fontSize: 12},
+                axisLine: {lineStyle: {color: '#334155'}}
+            },
+            series: [{
+                type: 'bar',
+                data: ordered.map(c => c.count),
+                barWidth: '55%',
+                itemStyle: {color: accent, borderRadius: [0, 4, 4, 0]},
+                label: {show: true, position: 'right', color: '#cbd5e1', fontSize: 12}
+            }]
+        });
+        chart.resize();
+    }
+
+    // ================================================================
+    // 加载
+    // ================================================================
+    async function loadAll() {
+        try {
+            await ensureMap();
+        } catch (err) {
+            document.getElementById('loginMap').innerHTML =
+                '<div class="empty">❌ 地图数据加载失败，请检查 /js/china.json</div>';
+            document.getElementById('questionMap').innerHTML =
+                '<div class="empty">❌ 地图数据加载失败，请检查 /js/china.json</div>';
+            return;
+        }
+
+        const [login, question] = await Promise.all([
+            fetchJson(`/api/dashboard/login-geo?days=${currentDays}&topN=10`),
+            fetchJson(`/api/dashboard/question-geo?days=${currentDays}&topN=10`)
+        ]);
+
+        renderMeta('loginMeta', '登录', login);
+        renderMeta('questionMeta', '提问', question);
+
+        if (!login.unavailable) {
+            renderProvinceMap('loginMap', login.provinces, '#38bdf8');
+            renderCityRanking('loginCities', login.cities, '#38bdf8');
+        }
+        if (!question.unavailable) {
+            renderProvinceMap('questionMap', question.provinces, '#34d399');
+            renderCityRanking('questionCities', question.cities, '#34d399');
+        }
+    }
+
+    async function fetchJson(url) {
+        try {
+            const resp = await fetch(url);
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.errMessage || '加载失败');
+            return data.data || {};
+        } catch (err) {
+            console.error(url, err);
+            return {unavailable: true};
+        }
+    }
+
+    // 时间范围切换
+    document.getElementById('rangeGroup').addEventListener('click', function (e) {
+        const btn = e.target.closest('button[data-days]');
+        if (!btn) return;
+        this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentDays = parseInt(btn.dataset.days, 10);
+        loadAll();
+    });
+
+    loadAll();
+</script>
+</body>
+</html>

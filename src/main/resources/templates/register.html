@@ -79,6 +79,23 @@
             <input type="text" id="realName" class="form-control" placeholder="请输入真实姓名">
         </div>
 
+        <!-- 公司信息：两个都是必填。校验以后端为准，这里只管体验 -->
+        <div class="mb-3">
+            <label class="form-label">所属公司名称</label>
+            <input type="text" id="companyName" class="form-control"
+                   placeholder="请输入公司全称" maxlength="128" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">统一社会信用代码</label>
+            <input type="text" id="creditCode" class="form-control"
+                   placeholder="营业执照上的 18 位代码" maxlength="18" required
+                   autocomplete="off" spellcheck="false"
+                   style="text-transform: uppercase; letter-spacing: 1px; font-family: ui-monospace, Consolas, monospace;">
+            <div class="form-text">
+                含校验位，填错会注册失败。<b>同公司的同事请填同一个代码</b>，系统据此自动归到同一家公司。
+            </div>
+        </div>
+
         <!-- 短信关闭时邮箱已经在上面的必填块里了，这里只在开启时作为可选项出现 -->
         <div class="mb-3" th:if="${smsEnabled}">
             <label class="form-label">邮箱（可选，用于找回密码）</label>
@@ -168,7 +185,11 @@
             username: document.getElementById('username').value,
             code: document.getElementById('code').value,
             password: document.getElementById('password').value,
-            realName: document.getElementById('realName').value
+            realName: document.getElementById('realName').value,
+            companyName: document.getElementById('companyName').value.trim(),
+            // 后端会再归一化一次（trim + 转大写）并验校验位，这里先统一大小写，
+            // 免得用户看着自己输入的小写码疑惑为什么"格式不对"
+            creditCode: document.getElementById('creditCode').value.trim().toUpperCase()
         };
         if (SMS_ENABLED) {
             data.phone = document.getElementById('phone').value;

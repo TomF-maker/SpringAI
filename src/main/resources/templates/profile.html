@@ -97,6 +97,22 @@
                         <input type="tel" class="form-control" id="phone" placeholder="请输入手机号">
                     </div>
                 </div>
+                <!-- 公司信息：注册时必填，这里可改。
+                     老用户（本功能上线前注册的）这两项是空的，补填即可 —— 不补也不拦。 -->
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">所属公司名称</label>
+                        <input type="text" class="form-control" id="companyName"
+                               placeholder="请输入公司全称" maxlength="128">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">统一社会信用代码</label>
+                        <input type="text" class="form-control" id="creditCode"
+                               placeholder="营业执照上的 18 位代码" maxlength="18"
+                               autocomplete="off" spellcheck="false"
+                               style="text-transform: uppercase; letter-spacing: 1px; font-family: ui-monospace, Consolas, monospace;">
+                    </div>
+                </div>
                 <div class="row mb-3">
                     <div class="col-md-6">
                         <label class="form-label">注册时间</label>
@@ -168,6 +184,8 @@
             document.getElementById('email').value = user.email || '';
             document.getElementById('phone').value = user.phone || '';
             document.getElementById('department').value = user.departmentName || '未分配';
+            document.getElementById('companyName').value = user.companyName || '';
+            document.getElementById('creditCode').value = user.creditCode || '';
             document.getElementById('createdAt').value = user.createdAt ? new Date(user.createdAt).toLocaleString() : '-';
             const userTypeMap = {1: '内部员工', 2: '外部用户'};
             document.getElementById('userType').value = userTypeMap[user.userType] || '未知';
@@ -184,6 +202,22 @@
             email: document.getElementById('email').value.trim(),
             phone: document.getElementById('phone').value.trim()
         };
+        // 公司信息：两个要么都填、要么都不填。
+        // 后端是按信用代码 find-or-create 的 —— 只给名称没法定位公司，只给代码没法新建。
+        //
+        // 老用户（本功能上线前注册）两项都是空的，整个不提交即可。
+        // 不能无条件提交空串：那会被"公司名称不能为空"拦住，
+        // 导致他们连改个手机号都做不了。
+        const companyName = document.getElementById('companyName').value.trim();
+        const creditCode = document.getElementById('creditCode').value.trim().toUpperCase();
+        if (companyName || creditCode) {
+            if (!companyName || !creditCode) {
+                Swal.fire('请补全', '要修改公司信息，公司名称与统一社会信用代码都要填', 'warning');
+                return;
+            }
+            data.companyName = companyName;
+            data.creditCode = creditCode;
+        }
         try {
             const resp = await fetch('/api/users/me', {
                 method: 'PUT',

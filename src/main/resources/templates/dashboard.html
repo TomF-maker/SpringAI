@@ -179,6 +179,18 @@
                 </div>
             </div>
         </div>
+
+        <!-- 各公司人数 -->
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="chart-card">
+                    <div class="chart-title">🏢 各公司人数
+                        <span id="companySummary" class="text-muted small fw-normal"></span>
+                    </div>
+                    <div id="companyChart" class="chart-container" style="height: 380px;"></div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -561,10 +573,71 @@
     }
 
     // ================================================================
+    // 各公司人数
+    // ================================================================
+    async function loadCompanyStatistics() {
+        const summary = document.getElementById('companySummary');
+        try {
+            const resp = await fetch('/api/dashboard/company-statistics');
+            const data = (await resp.json()).data || {};
+
+            if (data.unavailable) {
+                // 和"真的没有公司"区分开：空图会被读成"没有公司"，
+                // 而实际是 company_name 列还没加（DDL 没执行）
+                summary.textContent = '';
+                const chart = useChart('companyChart');
+                if (chart) chart.clear();
+                document.getElementById('companyChart').innerHTML =
+                    '<div class="text-center text-muted py-5">⚠️ 公司统计暂不可用 —— ' +
+                    'sys_user.company_name 列可能还没建，请先执行 doc/schema.sql 的 2026-09-15 段</div>';
+                return;
+            }
+
+            const companies = data.companies || [];
+            summary.textContent = `（${data.companyCount || 0} 家公司，共 ${data.totalUsers || 0} 人）`;
+            renderCompanies(companies);
+        } catch (err) {
+            console.error('加载公司统计失败', err);
+            summary.textContent = '';
+        }
+    }
+
+    function renderCompanies(companies) {
+        const chart = useChart('companyChart');
+        if (!chart) return;
+        if (!companies.length) {
+            chart.clear();
+            return;
+        }
+        // 同 renderHotQuestions：ECharts 类目轴从下往上画，倒序后人数最多的在顶部
+        const ordered = companies.slice().reverse();
+        chart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: '3%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
+            xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#f1f3f5' } } },
+            yAxis: {
+                type: 'category',
+                data: ordered.map(c => c.name.length > 16 ? c.name.substring(0, 16) + '…' : c.name),
+                axisLabel: { fontSize: 12 },
+                axisLine: { lineStyle: { color: '#e2e8f0' } }
+            },
+            series: [{
+                type: 'bar',
+                data: ordered.map(c => c.count),
+                barWidth: '55%',
+                itemStyle: { color: '#34a853', borderRadius: [0, 4, 4, 0] },
+                label: { show: true, position: 'right', fontSize: 12 }
+            }]
+        });
+        chart.resize();
+    }
+
+    // ================================================================
     // 初始化
     // ================================================================
     loadStatistics();
     loadQuestionStatistics();
+    loadCompanyStatistics();
 </script>
 </body>
 </html>

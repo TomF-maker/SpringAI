@@ -230,7 +230,7 @@
                     if (!sel) return;
                     let html = '<option value="">请选择</option>';
                     flat.forEach(d => {
-                        html += `<option value="${d.id}">${d.deptName}</option>`;
+                        html += `<option value="${d.id}">${esc(d.deptName)}</option>`;
                     });
                     sel.innerHTML = html;
                 });
@@ -258,6 +258,19 @@
     const pageSize = 10;
     let totalPages = 1;
 
+    /**
+     * HTML 转义。
+     *
+     * 文档标题、文件名、上传人姓名**全都是用户可控的** —— 文件名尤其容易忽视：
+     * 传一个叫 `<img src=x onerror=...>.pdf` 的文件，管理员一打开文档管理就中招。
+     * 所有插进 innerHTML 的字符串都要过这里。
+     */
+    function esc(v) {
+        return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     async function loadDocuments(page = 1) {
         const keyword = document.getElementById('keyword').value.trim();
         const deptId = document.getElementById('deptFilter').value;
@@ -277,7 +290,7 @@
             currentPage = pageResult.page || 1;
         } catch (err) {
             document.getElementById('docTableBody').innerHTML =
-                `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${err.message}</td></tr>`;
+                `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
         }
     }
 
@@ -299,10 +312,10 @@
             html += `
                 <tr>
                     <td>${d.id}</td>
-                    <td><span class="text-ellipsis" title="${d.title || '-'}">${d.title || '-'}</span></td>
-                    <td><span class="text-ellipsis" title="${d.fileName || '-'}">${d.fileName || '-'}</span></td>
-                    <td>${d.uploaderName || '-'}</td>
-                    <td>${d.departmentName || '-'}</td>
+                    <td><span class="text-ellipsis" title="${esc(d.title || '-')}">${esc(d.title || '-')}</span></td>
+                    <td><span class="text-ellipsis" title="${esc(d.fileName || '-')}">${esc(d.fileName || '-')}</span></td>
+                    <td>${esc(d.uploaderName || '-')}</td>
+                    <td>${esc(d.departmentName || '-')}</td>
                     <td>
                         <span class="visibility-badge">${visibleText}</span>
                         <span class="visibility-badge ${isPublicClass}">${isPublic}</span>

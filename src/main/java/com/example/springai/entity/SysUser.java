@@ -17,6 +17,19 @@ public class SysUser {
     private String realName;
     private String avatar;
     private Long departmentId;
+
+    /**
+     * 所属公司（{@code sys_company.id}）。注册必填；本功能上线前的老用户为 NULL。
+     *
+     * <p>公司与 {@link #departmentId} 是两件互不相干的事：公司用于"每公司多少人"的统计
+     * 与展示，部门用于文档可见性等权限判断。注册时会拿公司名去 {@code sys_department}
+     * 里碰一次（碰上了就把 departmentId 指过去），碰不上就挂到总公司。
+     *
+     * <p><b>存 id 而不是公司名字符串</b>：第一版存的是字符串，结果信用代码的唯一约束
+     * 落到用户表上，变成"一家公司只能注册一个人"。见 {@code SysCompany} 的类注释。
+     */
+    private Long companyId;
+
     private Integer userType;   // 1=内部 2=外部
     private Integer status;     // 0=禁用 1=启用
     private Integer isAdmin;    // 0=否 1=是

@@ -11,6 +11,7 @@ import com.example.springai.service.DepartmentServiceI;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -28,6 +29,60 @@ public class DepartmentServiceImpl implements DepartmentServiceI {
 
     @Autowired
     private SysUserMapper userMapper;
+
+    /** 注册用户在公司名对不上任何部门时，退让到的默认归属部门名。 */
+    @Value("${app.company.headquarters-dept-name:总公司}")
+    private String headquartersDeptName;
+
+    @Override
+    public Long findIdByName(String deptName) {
+        if (!StringUtils.hasText(deptName)) {
+            return null;
+        }
+        SysDepartment dept = departmentMapper.selectOne(
+                new QueryWrapper<SysDepartment>()
+                        .eq("dept_name", deptName.trim())
+                        // 同名部门理论上是脏数据，但真出现时 selectOne 会抛
+                        // TooManyResultsException，注册链路不能被它打断
+                        .last("LIMIT 1"));
+        return dept == null ? null : dept.getId();
+    }
+
+    @Override
+    public Long resolveRegistrationDeptId(String companyName) {
+        // 1. 用户填的公司名正好是一个部门 —— 说明跟组织架构对上了
+        Long byCompany = findIdByName(companyName);
+        if (byCompany != null) {
+            return byCompany;
+        }
+
+        // 2. 总公司
+        Long headquarters = findIdByName(headquartersDeptName);
+        if (headquarters != null) {
+            return headquarters;
+        }
+
+        // 3. 第一个根部门。走到这里说明「总公司」这个名字在部门表里不存在，
+        //    多半是还没建，所以给一条能用的退路而不是直接放弃
+        SysDepartment root = departmentMapper.selectOne(
+                new QueryWrapper<SysDepartment>()
+                        .eq("parent_id", 0)
+                        .orderByAsc("sort_order", "id")
+                        .last("LIMIT 1"));
+        if (root != null) {
+            log.warn("⚠️ 未找到名为「{}」的部门（可用 app.company.headquarters-dept-name 配置），"
+                            + "本次注册将挂到第一个根部门「{}」(id={})。"
+                            + "建议在部门管理里建一个总公司节点。",
+                    headquartersDeptName, root.getDeptName(), root.getId());
+            return root.getId();
+        }
+
+        // 4. 部门表是空的或全都没有根节点 —— 退到"没有部门"，并明确提示，
+        //    否则新用户会静默地全部没有部门，而管理页上看起来一切正常
+        log.warn("⚠️ 部门表里没有任何根部门（parent_id=0），本次注册的 department_id 为空。"
+                + "请在部门管理里建一个总公司节点。");
+        return null;
+    }
 
     @Override
     public List<DepartmentTreeDTO> getDepartmentTree() {

@@ -3,14 +3,17 @@ package com.example.springai.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.springai.dto.*;
+import com.example.springai.entity.SysCompany;
 import com.example.springai.entity.SysDepartment;
 import com.example.springai.entity.SysRole;
 import com.example.springai.entity.SysUser;
 import com.example.springai.entity.SysUserRole;
+import com.example.springai.exception.BizException;
 import com.example.springai.mapper.SysDepartmentMapper;
 import com.example.springai.mapper.SysRoleMapper;
 import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.mapper.SysUserRoleMapper;
+import com.example.springai.service.CompanyServiceI;
 import com.example.springai.service.EmailServiceI;
 import com.example.springai.service.UserServiceI;
 import com.example.springai.utils.PasswordGenerator;
@@ -37,6 +40,9 @@ public class UserServiceImpl implements UserServiceI {
 
     @Autowired
     private SysDepartmentMapper departmentMapper;
+
+    @Autowired
+    private CompanyServiceI companyService;
 
     @Autowired
     private SysRoleMapper roleMapper;
@@ -113,6 +119,14 @@ public class UserServiceImpl implements UserServiceI {
         dto.setRealName(user.getRealName());
         dto.setAvatar(user.getAvatar());
         dto.setDepartmentId(user.getDepartmentId());
+        dto.setCompanyId(user.getCompanyId());
+        // 公司名/信用代码存在 sys_company 上，用户行里只有 id —— 这里翻译一次。
+        // 老用户 companyId 为 null，两个字段就留空，前端显示"未填写"
+        SysCompany company = companyService.findById(user.getCompanyId());
+        if (company != null) {
+            dto.setCompanyName(company.getCompanyName());
+            dto.setCreditCode(company.getCreditCode());
+        }
         dto.setUserType(user.getUserType());
         dto.setStatus(user.getStatus());
         dto.setIsAdmin(user.getIsAdmin());
@@ -231,6 +245,12 @@ public class UserServiceImpl implements UserServiceI {
                 dto.setDepartmentName(dept.getDeptName());
             }
         }
+        // 公司名与信用代码在 sys_company 上，copyProperties 带不过来（用户行里只有 companyId）
+        SysCompany company = companyService.findById(user.getCompanyId());
+        if (company != null) {
+            dto.setCompanyName(company.getCompanyName());
+            dto.setCreditCode(company.getCreditCode());
+        }
         return dto;
     }
 
@@ -269,6 +289,18 @@ public class UserServiceImpl implements UserServiceI {
                 throw new RuntimeException("邮箱已被其他用户使用");
             }
             user.setEmail(request.getEmail());
+        }
+        // 公司信息：两个字段必须一起提交 —— 公司是按信用代码 find-or-create 的，
+        // 只给名称没法定位，只给代码没法新建。
+        // 与注册走完全同一套逻辑，所以同事从个人中心改也会落到同一条公司记录上。
+        boolean hasCompanyName = request.getCompanyName() != null && !request.getCompanyName().isBlank();
+        boolean hasCreditCode = request.getCreditCode() != null && !request.getCreditCode().isBlank();
+        if (hasCompanyName || hasCreditCode) {
+            if (!hasCompanyName || !hasCreditCode) {
+                throw new BizException("修改公司信息时，公司名称与统一社会信用代码都要填");
+            }
+            user.setCompanyId(
+                    companyService.resolveOrCreate(request.getCompanyName(), request.getCreditCode()));
         }
         userMapper.updateById(user);
         log.info("用户 {} 信息已更新", userId);

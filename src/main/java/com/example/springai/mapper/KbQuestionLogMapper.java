@@ -91,4 +91,48 @@ public interface KbQuestionLogMapper extends BaseMapper<KbQuestionLog> {
               AND hit_type = 'TOOL'
             """)
     long selectToolCallCount(@Param("days") int days);
+
+    // ==================== 地域分布（大屏用） ====================
+    // 三个查询合起来才是完整的一张图：分布 + 总量 + 未解析量。
+    // **未解析量必须一起查**：高德覆盖不全，不显示它的话会看到"广东占 40%"
+    // 却不知道剩下 60% 是境外还是压根没解析出来。
+
+    /** 按省分组。省名归一化在 Service 层做（SQL 里不认"广东省"和"广东"是一回事）。 */
+    @Select("""
+            SELECT ip_province AS name, COUNT(*) AS count
+            FROM kb_question_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+              AND ip_province IS NOT NULL AND ip_province <> ''
+            GROUP BY ip_province
+            ORDER BY count DESC
+            """)
+    List<Map<String, Object>> selectProvinceDistribution(@Param("days") int days);
+
+    /** 按市分组，取前 N。 */
+    @Select("""
+            SELECT ip_city AS name, COUNT(*) AS count
+            FROM kb_question_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+              AND ip_city IS NOT NULL AND ip_city <> ''
+            GROUP BY ip_city
+            ORDER BY count DESC
+            LIMIT #{limit}
+            """)
+    List<Map<String, Object>> selectCityDistribution(@Param("days") int days,
+                                                     @Param("limit") int limit);
+
+    /**
+     * 总量与未解析量。
+     *
+     * <p>"未解析"包含两种：IP 是内网/取不到（本来就不该解析），
+     * 以及归属地还没补写完（异步回填，或者查询时刚好没成功）。
+     * 从报表角度它们是一回事 —— 都是"这次提问没有地域信息"。
+     */
+    @Select("""
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN ip_province IS NULL OR ip_province = '' THEN 1 ELSE 0 END) AS unresolved
+            FROM kb_question_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+            """)
+    Map<String, Object> selectGeoCoverage(@Param("days") int days);
 }

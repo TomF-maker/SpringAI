@@ -62,6 +62,17 @@ public class PageController {
         return "dashboard";
     }
 
+    /**
+     * 地域大屏（登录 / 提问分别来自哪个省、市）。
+     *
+     * <p>全屏深色页，刻意不带 sidebar/topbar 片段，也不引 app.css / app.js ——
+     * 那两个是给带侧边栏的后台页面用的，在全屏投屏页上既用不上又可能打架。
+     */
+    @GetMapping("/screen")
+    public String screen() {
+        return "screen";
+    }
+
     @GetMapping("/history")
     public String history() {
         return "history";
