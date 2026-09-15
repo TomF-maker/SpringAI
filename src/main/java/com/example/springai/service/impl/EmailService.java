@@ -8,8 +8,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
+import jakarta.mail.internet.MimeMessage;
+
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 
@@ -61,6 +65,26 @@ public class EmailService implements EmailServiceI {
      */
     public void deleteCode(String email) {
         redisTemplate.delete(CODE_PREFIX + email);
+    }
+
+    @Override
+    public void sendHtmlEmail(String to, String subject, String html) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            // 第二个参数 true = multipart，HTML 正文需要它；
+            // 第三个参数 UTF-8 不能省 —— 中文主题和正文会变乱码
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+            helper.setFrom(fromEmail);
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("📧 HTML 邮件已发送至 {}：{}", to, subject);
+        } catch (Exception e) {
+            // 往外抛：调用方（定时任务）要能知道这一封没发出去，
+            // 否则 pushed_at 被标记了、信却没了，那批新闻再也不会重发
+            throw new RuntimeException("发送邮件失败: " + e.getMessage(), e);
+        }
     }
 
     @Override

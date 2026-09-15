@@ -199,7 +199,9 @@ public class RagServiceImpl implements RagServiceI {
                 {"name": "工具名称", "arguments": {"参数名": "参数值"}}
                 可用的工具：
                 - getWeather: 查询天气，参数 city（城市名）
-                - getAINews: 获取AI新闻，参数 limit（数量）和 window（时间窗口，如24h、7d）
+                - getAINews: 获取AI新闻，参数 limit（数量）、window（时间窗口，如24h、7d）、
+                  category（可选，只要某一类时填：ai-models=模型发布/评测、ai-products=产品与功能、
+                  industry=行业与公司动态、paper=论文研究、tip=观点与技巧）
                 如果不需要工具，请直接回答用户的问题。
                 
                 用户问题：%s

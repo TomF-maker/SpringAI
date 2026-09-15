@@ -87,7 +87,10 @@ public class ToolExecutor {
                 case "getAINews":
                     int limit = args.has("limit") ? args.get("limit").asInt() : 5;
                     String window = args.has("window") ? args.get("window").asText() : "24h";
-                    return newsTool.getAINews(limit, window);
+                    // category 是可选的：模型不填就是"不限"，
+                    // 老版本的提示词不带这个字段也不会出错
+                    String category = args.has("category") ? args.get("category").asText() : null;
+                    return newsTool.getAINews(limit, window, category);
                 default:
                     return "未知工具: " + toolName;
             }
