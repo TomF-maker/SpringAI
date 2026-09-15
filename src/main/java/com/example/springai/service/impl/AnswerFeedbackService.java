@@ -34,6 +34,17 @@ import java.util.Map;
 @Service
 public class AnswerFeedbackService implements AnswerFeedbackServiceI {
 
+    /**
+     * 优化意见的字数上限。和前端 chat.html 里 Swal 的 maxlength 是同一个值，
+     * 改一处必须改另一处 —— 前端的只是体验，这里的才是约束。
+     *
+     * <p>DB 列是 {@code VARCHAR(1000)}，装得下，所以收紧到 800 不需要 DDL。
+     */
+    private static final int MAX_SUGGESTION_LENGTH = 800;
+
+    /** 优化意见的字数下限。同样要和前端 Swal 的 inputValidator 保持一致。 */
+    private static final int MIN_SUGGESTION_LENGTH = 5;
+
     @Autowired
     private KbAnswerFeedbackMapper feedbackMapper;
 
@@ -56,7 +67,23 @@ public class AnswerFeedbackService implements AnswerFeedbackServiceI {
 
         // 只有低分档才收优化意见
         if (rating.isNeedsSuggestion() && StringUtils.hasText(request.getSuggestion())) {
-            upsertSuggestion(feedback.getId(), userId, request.getSuggestion().trim());
+            String suggestion = request.getSuggestion().trim();
+            // 长度上限在这里兜底。前端的 maxlength 只是体验，绕过它（改 JS、
+            // 直接打接口）太容易了 —— 而这字段会进管理端的审核列表，
+            // 一条几万字的"意见"能把审核页撑爆。
+            // 传超长**直接拒绝**而不是截断：截断后用户以为提交完整了，
+            // 而管理员看到的是被砍掉一半、可能语义都不通的建议。
+            if (suggestion.length() > MAX_SUGGESTION_LENGTH) {
+                throw new BizException(ErrorCode.BAD_REQUEST,
+                        "优化意见最多 " + MAX_SUGGESTION_LENGTH + " 字，请精简一下");
+            }
+            // 下限和前端 Swal 的 inputValidator 是同一个值。少了它，绕过前端
+            // 就能往审核队列里灌"啊""嗯"这种一个字的噪音 —— 管理员得逐条点开才知道没内容。
+            if (suggestion.length() < MIN_SUGGESTION_LENGTH) {
+                throw new BizException(ErrorCode.BAD_REQUEST,
+                        "优化意见至少 " + MIN_SUGGESTION_LENGTH + " 个字，方便我们定位问题");
+            }
+            upsertSuggestion(feedback.getId(), userId, suggestion);
         }
         log.info("📝 收到答案评价: userId={}, questionLogId={}, rating={}, 带意见={}",
                 userId, request.getQuestionLogId(), rating.name(),
@@ -197,12 +224,22 @@ public class AnswerFeedbackService implements AnswerFeedbackServiceI {
         return awardPoints;
     }
 
-    /** 自定义积分优先；否则用档位；两个都没给就报错，不猜默认值。 */
+    /**
+     * 自定义积分优先；否则用档位；两个都没给就报错，不猜默认值。
+     *
+     * <p>自定义积分的下限是 <b>2</b>（大于 1 的正整数），不是 1。
+     * 1 分在"采纳一条建议"这个语境下没有意义，更像个手滑或占位值，
+     * 而积分一旦发出就要写流水，事后解释"为什么只给了 1 分"很尴尬。
+     *
+     * <p>前端校验和这里必须一致（见 feedback-review.html 的 readCustomPoints）。
+     * 但**这里的才是约束** —— 直接打接口就能绕过前端。
+     */
     private int resolveAwardPoints(SuggestionReviewRequest request) {
         Integer custom = request.getCustomPoints();
         if (custom != null) {
-            if (custom <= 0 || custom > 10000) {
-                throw new BizException(ErrorCode.BAD_REQUEST, "自定义积分需在 1 ~ 10000 之间");
+            if (custom <= 1 || custom > 10000) {
+                throw new BizException(ErrorCode.BAD_REQUEST,
+                        "自定义积分需为大于 1 的整数，且不超过 10000");
             }
             return custom;
         }

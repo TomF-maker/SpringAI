@@ -123,6 +123,166 @@
 
     installUnauthorizedHandler();
 
+    // ============================================================
+    // 共享分页栏
+    //
+    // 四个列表页（用户管理 / 文档管理 / 意见审核 / 历史记录）都需要同一套分页，
+    // 之前各写各的、行为还不一样：users 有省略号、documents 把所有页码都铺出来
+    // （页数一多就撑爆）、history 压根没有。这里收敛成一份。
+    //
+    // 两条和之前不同的行为，都是刻意改的：
+    //   1. **总页数 ≤ 1 时也渲染**（只是按钮禁用），不再整个清空 ——
+    //      之前只有 4 个用户时页面上一点分页痕迹都没有，看起来像"功能没做"。
+    //   2. **总是显示"共 N 条 · 第 X/Y 页"**，让人知道到底有多少数据。
+    //
+    // 挂在 window 上是因为 app.js 整体包在 IIFE 里，而调用方是各页面的内联脚本。
+    // ============================================================
+    var Pager = {
+        DEFAULT_SIZES: [10, 20, 50],
+
+        /**
+         * @param {Object} opts
+         * @param {string} opts.containerId 容器元素 id（会被整体重绘）
+         * @param {number} opts.total       总条数
+         * @param {number} opts.page        当前页（从 1 开始）
+         * @param {number} opts.size        每页条数
+         * @param {number[]} [opts.sizes]   可选的每页条数
+         * @param {string} [opts.unit]      计数单位，默认"条"
+         * @param {Function} opts.onChange  (page, size) => void
+         */
+        render: function (opts) {
+            var box = document.getElementById(opts.containerId);
+            if (!box) return;
+
+            var total = Math.max(0, opts.total || 0);
+            var size = Math.max(1, opts.size || 10);
+            var totalPages = Math.max(1, Math.ceil(total / size));
+            var page = Math.min(Math.max(1, opts.page || 1), totalPages);
+            var unit = opts.unit || '条';
+            var sizes = opts.sizes && opts.sizes.length ? opts.sizes : Pager.DEFAULT_SIZES;
+
+            // 容器清空重绘。下面所有插进去的值都是数字或固定文案，
+            // 没有来自接口的字符串，所以这里用模板串拼是安全的。
+            box.innerHTML = '';
+            box.className = 'pager-bar';
+
+            var summary = document.createElement('div');
+            summary.className = 'pager-summary';
+            summary.textContent = '共 ' + total + ' ' + unit + ' · 第 ' + page + '/' + totalPages + ' 页';
+            box.appendChild(summary);
+
+            var ul = document.createElement('ul');
+            ul.className = 'pagination pagination-sm mb-0';
+
+            // 上一页 / 下一页
+            ul.appendChild(Pager._item('上一页', page - 1, page <= 1, false, opts));
+            // 页码：首尾固定，当前页附近展开，中间用省略号
+            var start = Math.max(2, page - 2);
+            var end = Math.min(totalPages - 1, page + 2);
+            ul.appendChild(Pager._item('1', 1, false, page === 1, opts));
+            if (start > 2) ul.appendChild(Pager._gap());
+            for (var i = start; i <= end; i++) {
+                ul.appendChild(Pager._item(String(i), i, false, i === page, opts));
+            }
+            if (end < totalPages - 1) ul.appendChild(Pager._gap());
+            // totalPages 为 1 时上面已经渲染过第 1 页，别重复
+            if (totalPages > 1) {
+                ul.appendChild(Pager._item(String(totalPages), totalPages, false, page === totalPages, opts));
+            }
+            ul.appendChild(Pager._item('下一页', page + 1, page >= totalPages, false, opts));
+            box.appendChild(ul);
+
+            // 每页条数 + 跳页
+            var tools = document.createElement('div');
+            tools.className = 'pager-tools';
+
+            var sizeSel = document.createElement('select');
+            sizeSel.className = 'form-select form-select-sm';
+            sizeSel.setAttribute('aria-label', '每页条数');
+            sizes.forEach(function (s) {
+                var o = document.createElement('option');
+                o.value = String(s);
+                o.textContent = s;
+                if (s === size) o.selected = true;
+                sizeSel.appendChild(o);
+            });
+            sizeSel.addEventListener('change', function () {
+                // 换每页条数后回到第 1 页：留在原页码很可能越界
+                opts.onChange(1, parseInt(sizeSel.value, 10));
+            });
+            var sizeLabel1 = document.createElement('span');
+            sizeLabel1.textContent = '每页';
+            var sizeLabel2 = document.createElement('span');
+            sizeLabel2.textContent = '条';
+            tools.appendChild(sizeLabel1);
+            tools.appendChild(sizeSel);
+            tools.appendChild(sizeLabel2);
+
+            if (totalPages > 1) {
+                var jump = document.createElement('span');
+                jump.className = 'pager-jump';
+                var input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'form-control form-control-sm';
+                input.min = '1';
+                input.max = String(totalPages);
+                input.placeholder = '页码';
+                input.setAttribute('aria-label', '跳转到第几页');
+                input.addEventListener('keydown', function (e) {
+                    if (e.key !== 'Enter') return;
+                    var target = parseInt(input.value, 10);
+                    if (!target || target < 1 || target > totalPages) {
+                        input.value = '';
+                        return;
+                    }
+                    input.value = '';
+                    opts.onChange(target, size);
+                });
+                jump.appendChild(document.createTextNode('跳至'));
+                jump.appendChild(input);
+                jump.appendChild(document.createTextNode('页'));
+                tools.appendChild(jump);
+            }
+
+            box.appendChild(tools);
+        },
+
+        /** 单个页码按钮。disabled 的渲染成 span，否则点了会触发无意义跳转。 */
+        _item: function (label, target, disabled, active, opts) {
+            var li = document.createElement('li');
+            li.className = 'page-item' + (disabled ? ' disabled' : '') + (active ? ' active' : '');
+            if (disabled) {
+                var span = document.createElement('span');
+                span.className = 'page-link';
+                span.textContent = label;
+                li.appendChild(span);
+            } else {
+                var a = document.createElement('a');
+                a.className = 'page-link';
+                a.href = '#';
+                a.textContent = label;
+                a.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    opts.onChange(target, opts.size);
+                });
+                li.appendChild(a);
+            }
+            return li;
+        },
+
+        _gap: function () {
+            var li = document.createElement('li');
+            li.className = 'page-item disabled';
+            var span = document.createElement('span');
+            span.className = 'page-link';
+            span.textContent = '…';
+            li.appendChild(span);
+            return li;
+        }
+    };
+
+    window.Pager = Pager;
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {

@@ -17,6 +17,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -27,8 +28,23 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 文档管理（上传 / 列表 / 删除 / 下载）—— <b>仅管理员</b>。
+ *
+ * <p>类级 {@code @PreAuthorize} 而不是逐个方法标：漏标一个方法就是一个洞，
+ * 而这里每个方法都该是管理员专属。上传和删除会立刻改动所有人的检索结果，
+ * 下载则等于绕过文档的部门/公开可见性直接把原文拿走 —— 让普通用户进来风险太大。
+ *
+ * <p><b>菜单里的 admin-only 不是访问控制</b>，只是个视觉提示：不隐藏菜单时
+ * 普通用户点进来会看到一片 403，而隐藏了菜单他们仍然可以直接敲 URL 调接口。
+ * 真正的门在这里。普通用户该有的只有「智能问答 + 历史记录」。
+ *
+ * <p>目前四个页面里只有 {@code documents.html} 调这些接口，所以收紧不会误伤
+ * —— 加新页面要用文档接口时，记得它是管理员专属的。
+ */
 @RestController
 @RequestMapping("/api/documents")
+@PreAuthorize("hasRole('ADMIN')")
 @Slf4j
 public class DocumentController {
 

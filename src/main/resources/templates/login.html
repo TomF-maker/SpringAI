@@ -23,6 +23,8 @@
         .login-card h3 { text-align: center; margin-bottom: 24px; }
         .login-card .btn-primary { width: 100%; }
         .login-card .links { text-align: center; margin-top: 16px; }
+        .forgot-link { font-size: 13px; color: #64748b; text-decoration: none; }
+        .forgot-link:hover { color: #1a73e8; text-decoration: underline; }
         .code-row { display: flex; gap: 8px; }
         .code-row input { flex: 1; }
         .code-row button { flex-shrink: 0; }
@@ -42,6 +44,11 @@
         <div class="mb-3">
             <label class="form-label">密码</label>
             <input type="password" id="password" class="form-control" placeholder="请输入密码" required>
+            <!-- 放在密码框正下方：用户是在这里发现自己想不起密码的，
+                 放到页面底部的 links 里要多扫一眼才找得到 -->
+            <div class="text-end mt-1">
+                <a href="/forgot-password" class="forgot-link">忘记密码？</a>
+            </div>
         </div>
         <div id="loginError" class="alert alert-danger d-none"></div>
         <button type="submit" class="btn btn-primary">登 录</button>

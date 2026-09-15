@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=2">
+    <link rel="stylesheet" href="/css/app.css?v=3">
     <style>
         /* 聊天页专属：主内容区做成竖向 flex，让聊天框自适应填满视口高度。
            原先硬编码 calc(100vh - 140px)（顶栏高度），加了汉堡按钮后手机顶栏
@@ -59,6 +59,27 @@
             gap: 10px;
             flex-shrink: 0;
         }
+        /* 发起新会话：推到最右。用 margin-left:auto 而不是 justify-content:space-between，
+           因为标题那边是多个内联元素（文字 + 徽章），space-between 会把它们也拆开。 */
+        .new-chat-btn {
+            margin-left: auto;
+            background: rgba(255, 255, 255, .16);
+            border: 1px solid rgba(255, 255, 255, .35);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 5px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background .18s;
+        }
+        .new-chat-btn:hover { background: rgba(255, 255, 255, .28); }
+        @media (max-width: 991.98px) {
+            /* 窄屏只留图标，标题已经够挤了 */
+            .new-chat-btn .btn-text { display: none; }
+        }
+
         .chat-header .badge {
             background: rgba(255,255,255,0.2);
             font-size: 12px;
@@ -154,6 +175,32 @@
         }
         .typing-indicator.active { display: block; }
 
+        /* ---------- 气泡内的"思考中"占位 ----------
+           在第一个字到达之前显示在 AI 气泡里。
+           为什么不用上面那个独立的 typing-indicator：它在响应头回来时就被关掉了，
+           而第一个 token 还要再等几秒（检索 + 模型首字），那几秒用户盯着的是**空白气泡**。
+           这个占位由第一个内容 chunk 自动顶掉（contentDiv.textContent = fullText 会覆盖）。 */
+        .thinking {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        .thinking .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            animation: thinking-bounce 1.2s infinite ease-in-out;
+        }
+        .thinking .dot:nth-child(2) { animation-delay: .15s; }
+        .thinking .dot:nth-child(3) { animation-delay: .3s; }
+        @keyframes thinking-bounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+            30% { transform: translateY(-4px); opacity: 1; }
+        }
+
         /* ---------- 答案评价控件 ---------- */
         .answer-feedback {
             margin-top: 10px;
@@ -220,6 +267,10 @@
             <div class="chat-header">
                 🛒 采购智能助手
                 <span class="badge">RAG · 天气 · 新闻</span>
+                <button type="button" class="new-chat-btn" id="newChatBtn"
+                        title="清空当前对话，重新开始">
+                    <i class="bi bi-plus-lg"></i><span class="btn-text"> 发起新会话</span>
+                </button>
             </div>
 
             <div class="chat-messages" id="chatMessages">
@@ -242,7 +293,7 @@
 </div>
 
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=3"></script>
+<script src="/js/app.js?v=4"></script>
 <script>
     // ================================================================
     // 1. 认证：允许未登录使用（游客模式，按 IP 每日限额）
@@ -428,13 +479,22 @@
             const r = await Swal.fire({
                 title: '哪里可以做得更好？',
                 input: 'textarea',
-                inputPlaceholder: '比如：答非所问 / 信息过时 / 不够具体 / 有事实错误…',
-                inputAttributes: { maxlength: 1000 },
+                inputPlaceholder: '比如：答非所问 / 信息过时 / 不够具体 / 有事实错误…\n（最多 800 字）',
+                // 800 是产品定的上限。**前端的 maxlength 只是体验**：
+                // 绕过它（改 JS、直接打接口）很容易，所以后端还有一道同样的校验。
+                // DB 列是 VARCHAR(1000)，装得下，不需要 DDL。
+                inputAttributes: { maxlength: 800 },
                 showCancelButton: true,
                 confirmButtonText: '提交',
                 cancelButtonText: '跳过',
                 inputValidator: function (v) {
-                    return (!v || v.trim().length < 5) ? '请至少写 5 个字，方便我们定位问题' : undefined;
+                    if (!v || v.trim().length < 5) {
+                        return '请至少写 5 个字，方便我们定位问题';
+                    }
+                    if (v.trim().length > 800) {
+                        return '最多 800 字，请精简一下';
+                    }
+                    return undefined;
                 }
             });
             if (r.isConfirmed && r.value) suggestion = r.value.trim();
@@ -527,6 +587,11 @@
         if (conversationId) {
             url += `&conversationId=${conversationId}`;
         }
+        // 这条路径（天气/新闻走工具调用）要等**两次**大模型往返，比流式还慢，
+        // 但之前什么提示都没有 —— 用户点完发送就是干等。
+        // 这里用独立的 typing-indicator（而不是气泡内占位）：本路径要拿到完整答案
+        // 才建气泡，等待期间根本没有气泡可以放占位。
+        setTyping(true);
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -541,6 +606,9 @@
         } catch (error) {
             console.error('Blocking error:', error);
             addMessage('ai', `❌ 请求失败：${error.message}`);
+        } finally {
+            // 放 finally：中途抛异常时提示不能留在那里转
+            setTyping(false);
         }
     }
 
@@ -561,7 +629,12 @@
         roleTag.textContent = '🤖 助手';
         const contentDiv = document.createElement('div');
         contentDiv.className = 'content';
-        contentDiv.textContent = '';
+        // 先放"思考中"占位，第一个内容 chunk 会把它整块顶掉
+        // （下面用的是 contentDiv.textContent = fullText，会覆盖所有子节点）。
+        // 这一步是修"用户干等"的关键：从气泡出现到第一个字之间不能再是空白。
+        contentDiv.innerHTML = '<span class="thinking">'
+            + '<span class="dot"></span><span class="dot"></span><span class="dot"></span>'
+            + '正在检索知识库并思考…</span>';
         const timeDiv = document.createElement('div');
         timeDiv.className = 'time';
         timeDiv.textContent = '';
@@ -570,13 +643,12 @@
         aiMessageDiv.appendChild(timeDiv);
         messagesContainer.insertBefore(aiMessageDiv, typingIndicator);
 
-        setTyping(true);
-
+        // 这里**不调 setTyping** —— 等待提示已经放在气泡内部了。
+        // 两个同时开会让用户看到一个独立的"正在思考"加一个带占位的气泡，重复。
+        // 那个独立指示器留给 sendBlocking 用（那条路没有提前建气泡）。
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            setTyping(false);
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
@@ -716,7 +788,52 @@
     });
 
     // ================================================================
-    // 11. 初始化
+    // 11. 发起新会话
+    // ================================================================
+    // 先把欢迎语的原始 HTML 记下来：第一次提问时它会被 addMessage 移除，
+    // 发起新会话时原样放回去 —— 否则清空后是一片空白，看着像页面坏了。
+    // 必须在初始化最前面取，那时它一定还在。
+    const welcomeHtml = (function () {
+        const el = document.querySelector('#chatMessages .message.ai');
+        return el ? el.outerHTML : '';
+    })();
+
+    document.getElementById('newChatBtn').addEventListener('click', function () {
+        if (isProcessing) {
+            Swal.fire('正在回答中', '等这次回答结束再开新会话吧', 'info');
+            return;
+        }
+        // 只有已经在会话里才问一句。空会话上点一下也弹确认框很烦。
+        if (conversationId && !confirm('清空当前对话，开始新的会话？')) return;
+        startNewConversation();
+    });
+
+    function startNewConversation() {
+        conversationId = null;
+        // 把 URL 上的 conversationId 去掉 —— 留着的话刷新页面会又加载回旧会话
+        const url = new URL(window.location);
+        url.searchParams.delete('conversationId');
+        window.history.replaceState({}, '', url);
+
+        // 只清消息，typing 指示器是常驻元素，不能一起删
+        const container = document.getElementById('chatMessages');
+        container.querySelectorAll('.message').forEach(function (m) { m.remove(); });
+        if (welcomeHtml) {
+            container.insertAdjacentHTML('afterbegin', welcomeHtml);
+            const wt = document.getElementById('welcomeTime');
+            if (wt) wt.textContent = getCurrentTime();
+        }
+
+        setTyping(false);
+        messageInput.value = '';
+        messageInput.disabled = false;
+        sendBtn.disabled = false;
+        messageInput.focus();
+        scrollToBottom();
+    }
+
+    // ================================================================
+    // 12. 初始化
     // ================================================================
     document.getElementById('welcomeTime').textContent = getCurrentTime();
     messageInput.focus();

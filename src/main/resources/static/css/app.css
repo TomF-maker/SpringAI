@@ -112,6 +112,46 @@ body.is-admin [data-admin-only] { display: block; }
 .topbar .user-info i { margin-right: 6px; }
 .topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
 
+/* ---------- 顶栏的登录 / 未登录两态 ----------
+   由 body.is-authed 驱动（那个类是 sidebar 片段开头的内联脚本写的），
+   这里只负责显隐，不再多一处 JS 判定。 */
+.topbar .user-info .auth-only { display: none; align-items: center; }
+.topbar .user-info .guest-only { display: inline-flex; align-items: center; gap: 8px; }
+body.is-authed .topbar .user-info .auth-only { display: inline-flex; }
+body.is-authed .topbar .user-info .guest-only { display: none; }
+/* 未登录时把占位的"用户"去掉，只留登录/注册按钮 */
+.topbar .user-info .guest-only .btn { font-size: 13px; padding: 3px 12px; }
+
+/* ---------- 分页栏 ----------
+   四个列表页共用，由 app.js 的 window.Pager 渲染。
+   容器原本是 <ul class="pagination">，现在换成普通 div（里面自己建 ul），
+   因为一栏里除了页码还要放"共 N 条"和每页条数选择。 */
+.pager-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+.pager-summary { font-size: 13px; color: #64748b; margin-right: auto; }
+.pager-bar .pagination { margin-bottom: 0; }
+.pager-tools {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #64748b;
+}
+.pager-tools .form-select,
+.pager-tools .form-control { width: auto; }
+.pager-jump { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+.pager-jump .form-control { width: 68px; }
+
+@media (max-width: 991.98px) {
+    /* 窄屏：摘要独占一行，页码和工具换行显示，避免挤成一团 */
+    .pager-summary { flex-basis: 100%; margin-right: 0; }
+}
+
 /* 汉堡按钮：默认隐藏，仅窄屏出现 */
 .drawer-toggle {
     display: none;

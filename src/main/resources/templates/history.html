@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=2">
+    <link rel="stylesheet" href="/css/app.css?v=3">
     <style>
         .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
 
@@ -141,13 +141,14 @@
             </div>
 
             <div id="conversationList"></div>
+            <div id="pagerBar"></div>
         </div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=3"></script>
+<script src="/js/app.js?v=4"></script>
 <script>
     // ================================================================
     // 认证
@@ -265,6 +266,11 @@
     // ================================================================
     let allConversations = [];
 
+    // 分页状态。这个页面的分页是**前端**做的：/api/conversations 一次返回全部，
+    // 所以切片放在关键词过滤之后 —— 否则"搜完只剩 3 条却被切在第 5 页"会显示空白。
+    let currentPage = 1;
+    let pageSize = 10;
+
     async function loadHistory() {
         const container = document.getElementById('conversationList');
         // 骨架屏：避免加载期间一片空白
@@ -313,12 +319,21 @@
                        <small>去智能问答页面开始第一次对话吧</small>
                        <a href="/chat" class="btn btn-primary btn-sm px-4">开始提问</a>
                    </div>`;
+            renderPager(0);
             return;
         }
 
-        // 按 今天 / 昨天 / 更早 分组
+        // 分页切片放在过滤之后。越界要夹回来 —— 删掉最后一页的唯一一条后
+        // currentPage 会停在已不存在的页上，不夹的话这一页永远是空的。
+        const totalFiltered = list.length;
+        if (currentPage > Math.max(1, Math.ceil(totalFiltered / pageSize))) {
+            currentPage = Math.max(1, Math.ceil(totalFiltered / pageSize));
+        }
+        const pageList = list.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+        // 按 今天 / 昨天 / 更早 分组（只在当前页内分组）
         const groups = { '今天': [], '昨天': [], '更早': [] };
-        list.forEach(conv => groups[groupOf(conv.updatedAt)].push(conv));
+        pageList.forEach(conv => groups[groupOf(conv.updatedAt)].push(conv));
 
         let html = '';
         ['今天', '昨天', '更早'].forEach(label => {
@@ -351,6 +366,30 @@
             });
         });
         container.innerHTML = html;
+        renderPager(totalFiltered);
+    }
+
+    /**
+     * 渲染分页。实现在 app.js 的 window.Pager —— 四个列表页共用一套。
+     *
+     * <p>这一页原先**完全没有分页**，会话多了要一直往下滚。
+     */
+    function renderPager(total) {
+        Pager.render({
+            containerId: 'pagerBar',
+            total: total,
+            page: currentPage,
+            size: pageSize,
+            unit: '条对话',
+            onChange: function (newPage, newSize) {
+                currentPage = newPage;
+                pageSize = newSize;
+                renderList();
+                // 翻页后滚回列表顶部，否则停在页面底部看不到新内容
+                document.getElementById('conversationList')
+                    .scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
     }
 
     // ================================================================
@@ -373,7 +412,12 @@
     let searchTimer = null;
     document.getElementById('searchInput').addEventListener('input', function () {
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(renderList, 150);
+        searchTimer = setTimeout(function () {
+            // 搜索条件变了就回第 1 页：停在原页码多半会越界，
+            // 而"搜出 3 条却显示第 5 页的空白"最容易被当成"搜不到"
+            currentPage = 1;
+            renderList();
+        }, 150);
     });
 
     // ================================================================

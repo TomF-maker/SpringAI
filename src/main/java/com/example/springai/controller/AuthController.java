@@ -6,6 +6,7 @@ import com.example.springai.common.Response;
 import com.example.springai.dto.LoginRequest;
 import com.example.springai.dto.LoginResponse;
 import com.example.springai.dto.RegisterRequest;
+import com.example.springai.dto.ResetPasswordRequest;
 import com.example.springai.dto.SendSmsCodeRequest;
 import com.example.springai.dto.SendCodeRequest;
 import com.example.springai.dto.VerifyLoginRequest;
@@ -99,6 +100,12 @@ public class AuthController {
      * <p>关闭时不发任何短信：注册回退到邮箱验证码流程、登录不做手机二次校验、
      * 两个短信接口直接拒绝。用于短信通道还没法真发的阶段。
      */
+    /**
+     * 密码最短长度。和 register.html / forgot-password.html 里的 {@code minlength} 是同一个值，
+     * 改一处必须改另一处 —— 前端那个只是体验，**这里才是约束**。
+     */
+    private static final int MIN_PASSWORD_LENGTH = 8;
+
     @Value("${app.sms.enabled:false}")
     private boolean smsEnabled;
 
@@ -251,6 +258,63 @@ public class AuthController {
     }
 
     /**
+     * 忘记密码：用邮箱验证码重置密码。
+     *
+     * <p>流程是「{@code /send-code} 发码 → 这里验码 + 改密码」，全程**不需要登录**
+     * —— 用户就是因为登不上去才走这条路。
+     *
+     * <p>几个刻意的取舍：
+     * <ul>
+     *   <li><b>密码长度校验放在验码之前。</b>{@code verify} 是**一次性**的，
+     *       成功即删码；先验码再发现新密码太短的话，用户得重新收一次邮件。
+     *       密码校验是纯输入检查、没有副作用，提到最前面。</li>
+     *   <li><b>验码放在查用户之前。</b>反过来就等于提供了一个
+     *       "输入邮箱就知道注册没注册"的探测接口。</li>
+     *   <li><b>不改账号状态、也不签发 token。</b>被停用的账号允许改密码，
+     *       但改完仍登不进去 —— 那道检查在 {@code UserDetailsServiceImpl}，
+     *       这里既不重复也不绕过。改完要求用户自己回登录页重新登一次。</li>
+     * </ul>
+     *
+     * <p><b>没有速率限制</b>：{@code /send-code} 本身就没有，所以这里也没加。
+     * 也就是说可以反复触发给某个邮箱发信。要收紧就在 {@code /send-code} 上做，
+     * 别只加在这里（那等于绕过）。
+     */
+    @PostMapping("/reset-password")
+    public Response<Void> resetPassword(@RequestBody ResetPasswordRequest request) {
+        String email = request.getEmail() == null ? null : request.getEmail().trim();
+        if (email == null || email.isEmpty()) {
+            throw new BizException("请填写邮箱");
+        }
+
+        // 先做纯输入校验，避免白白消耗掉一次性验证码
+        String newPassword = request.getNewPassword();
+        if (newPassword == null || newPassword.length() < MIN_PASSWORD_LENGTH) {
+            throw new BizException("新密码至少 " + MIN_PASSWORD_LENGTH + " 位");
+        }
+
+        if (!verificationCodeService.verify(email, request.getCode())) {
+            throw new BizException("验证码错误或已过期");
+        }
+
+        SysUser user = userMapper.selectOne(
+                new QueryWrapper<SysUser>().eq("email", email).last("LIMIT 1"));
+        if (user == null) {
+            throw new BizException("该邮箱未注册");
+        }
+
+        // 只写 id + password 两列。不要用整个实体 updateById ——
+        // 那会把读出来的旧快照（lastLoginIp、points、memberType…）一起写回去，
+        // 这个坑在 issueToken 里踩过一次，见 CLAUDE.md。
+        SysUser update = new SysUser();
+        update.setId(user.getId());
+        update.setPassword(passwordEncoder.encode(newPassword));
+        userMapper.updateById(update);
+
+        log.info("🔑 用户通过邮箱验证码重置了密码: userId={}", user.getId());
+        return Response.success();
+    }
+
+    /**
      * 注册。
      *
      * <p>有两条路径，由 {@code app.sms.enabled} 决定：
@@ -316,6 +380,12 @@ public class AuthController {
             companyId = companyService.resolveOrCreate(companyName, request.getCreditCode());
         } catch (BizException e) {
             return Response.fail(ErrorCode.BAD_REQUEST, e.getMessage());
+        }
+
+        // 密码长度在这里兜底。此前**后端完全没有这个校验**，只有 register.html 的
+        // minlength —— 绕过前端（改 JS / 直接打接口）就能注册一个 1 位密码的账号。
+        if (request.getPassword() == null || request.getPassword().length() < MIN_PASSWORD_LENGTH) {
+            return Response.fail(ErrorCode.BAD_REQUEST, "密码至少 " + MIN_PASSWORD_LENGTH + " 位");
         }
 
         // 6. 创建新用户

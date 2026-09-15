@@ -47,14 +47,15 @@
                 <i class="bi bi-clock-history"></i> <span>历史记录</span>
             </a>
         </li>
-        <li class="nav-item" data-auth-only>
+        <!-- ---------- 管理功能（仅 admin） ---------- -->
+        <li class="nav-divider" data-admin-only role="separator"></li>
+        <!-- 文档管理归到管理功能：上传/删除会立刻影响所有人的检索结果，
+             让普通用户进来改知识库风险太大。普通用户只有「智能问答 + 历史记录」。 -->
+        <li class="nav-item" data-admin-only>
             <a class="nav-link" th:classappend="${active == 'documents'} ? 'active' : ''" href="/documents">
                 <i class="bi bi-file-earmark-text"></i> <span>文档管理</span>
             </a>
         </li>
-
-        <!-- ---------- 管理功能（仅 admin） ---------- -->
-        <li class="nav-divider" data-admin-only role="separator"></li>
         <li class="nav-item" data-admin-only>
             <a class="nav-link" th:classappend="${active == 'dashboard'} ? 'active' : ''" href="/dashboard">
                 <i class="bi bi-graph-up"></i> <span>数据看板</span>
@@ -117,10 +118,22 @@
         </button>
         <span class="topbar-title" id="pageTitle" th:text="${pageTitle}">页面</span>
     </div>
+    <!--
+      两种状态的显隐由 CSS 按 body.is-authed 切换，不写 JS：
+      body 上的那个类已经由 sidebar 片段开头的内联脚本尽早写好了
+      （见上面"菜单显隐的判定只有一处"），这里复用它，不再多一处判定。
+      未登录时显示"登录/注册"而不是"退出" —— 游客根本没有可退的登录态。
+    -->
     <div class="user-info">
-        <i class="bi bi-person-circle"></i>
-        <span id="currentUser">用户</span>
-        <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
+        <span class="auth-only">
+            <i class="bi bi-person-circle"></i>
+            <span id="currentUser">用户</span>
+            <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
+        </span>
+        <span class="guest-only">
+            <a href="/login" class="btn btn-sm btn-primary">登录</a>
+            <a href="/register" class="btn btn-sm btn-outline-primary">注册</a>
+        </span>
     </div>
 </div>
 

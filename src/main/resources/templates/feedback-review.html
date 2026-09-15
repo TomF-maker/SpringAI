@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=2">
+    <link rel="stylesheet" href="/css/app.css?v=3">
     <style>
         .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
@@ -102,7 +102,7 @@
             </div>
 
             <nav aria-label="Page navigation" class="mt-3">
-                <ul class="pagination justify-content-end" id="pagination"></ul>
+                <div id="pagerBar"></div>
             </nav>
         </div>
     </div>
@@ -131,25 +131,40 @@
                     <div class="ctx-body" id="rvSuggestion"></div>
                 </div>
 
-                <div class="mb-3">
-                    <label class="form-label">积分奖励档位</label>
-                    <div class="tier-row" id="tierRow"></div>
-                    <div class="form-text">选择档位，或在下面填自定义积分（自定义优先）。</div>
+                <!-- 已审核：只展示结果，**不展示任何可操作控件**。
+                     之前这些控件只是 disabled，看着仍然像"还能点"，点「查看」的人
+                     会以为可以重新裁决一次。 -->
+                <div class="ctx-block d-none" id="rvResultBlock">
+                    <div class="ctx-label">审核结果</div>
+                    <div class="ctx-body" id="rvResult"></div>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">自定义积分（可选）</label>
-                    <input type="number" class="form-control" id="rvCustomPoints" min="1" max="10000"
-                           placeholder="留空则使用所选档位">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label">审核备注（可选，会展示给用户）</label>
-                    <textarea class="form-control" id="rvRemark" rows="2" maxlength="500"
-                              placeholder="例如：已根据该建议补充了知识库文档"></textarea>
+
+                <!-- 待审核才出现的操作区，整体隐藏用 -->
+                <div id="rvActionBlock">
+                    <div class="mb-3">
+                        <label class="form-label">积分奖励档位</label>
+                        <div class="tier-row" id="tierRow"></div>
+                        <div class="form-text">选「自定义」时才需要填具体分值。</div>
+                    </div>
+                    <!-- 只在选中「自定义」档位时出现（openReview / tierRow 的点击处理里切换）。
+                         之前它是常驻的，和档位按钮各管一半，用户分不清哪个优先。 -->
+                    <div class="mb-3 d-none" id="rvCustomBlock">
+                        <label class="form-label" for="rvCustomPoints">自定义积分</label>
+                        <input type="number" class="form-control" id="rvCustomPoints"
+                               min="2" max="10000" step="1" placeholder="例如：150">
+                        <div class="form-text">必须是大于 1 的整数，最多 10000。</div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">审核备注（可选，会展示给用户）</label>
+                        <textarea class="form-control" id="rvRemark" rows="2" maxlength="500"
+                                  placeholder="例如：已根据该建议补充了知识库文档"></textarea>
+                    </div>
                 </div>
                 <input type="hidden" id="rvSuggestionId">
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="rvCancelBtn">取消</button>
+                <!-- 两个操作按钮在「查看」已审核条目时整体隐藏，见 openReview -->
                 <button class="btn btn-outline-danger" id="rejectBtn"><i class="bi bi-x-circle"></i> 驳回</button>
                 <button class="btn btn-primary" id="acceptBtn"><i class="bi bi-check2-circle"></i> 采纳并发放积分</button>
             </div>
@@ -160,7 +175,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=3"></script>
+<script src="/js/app.js?v=4"></script>
 <script>
     // ================================================================
     // 1. 认证检查（与用户管理页一致：仅管理员）
@@ -207,17 +222,44 @@
     /** 空串 = 全部。一进页面默认展示全部，不再默认只看待审核。 */
     let currentStatus = '';
     let currentPage = 1;
-    const pageSize = 10;
+    // 用 let 而不是 const：分页栏上的"每页条数"选择器会改它
+    let pageSize = 10;
     let reviewModalInstance = null;
     let currentRow = null;
     /** 当前页数据。点击"审核"时从这里取回整行，不用再请求一次。 */
     let lastRows = [];
     let selectedTier = null;
+    // CUSTOM 的 points 是 null —— 它没有固定分值，靠输入框填。
+    // 放进同一个数组是为了让它和三个固定档位**并排渲染成一个选择器**，
+    // 而不是像之前那样"档位按钮 + 另一个独立的可选输入框"两个控件各管一半，
+    // 用户根本分不清哪个优先。
     let tiers = [
         { value: 'SMALL', label: '小改进', points: 50 },
         { value: 'MEDIUM', label: '有价值', points: 100 },
-        { value: 'LARGE', label: '重大改进', points: 200 }
+        { value: 'LARGE', label: '重大改进', points: 200 },
+        { value: 'CUSTOM', label: '自定义', points: null }
     ];
+
+    /**
+     * 读自定义积分并校验。
+     *
+     * <p>用正则**整串匹配**，不能只 {@code parseInt} —— {@code parseInt('12abc')}
+     * 会静默得到 12，把明显非法的输入当成合法值发出去。
+     *
+     * <p>下限是 2 而不是 1：后端 {@code resolveAwardPoints} 用的是同一套规则，
+     * 两边必须一致。**后端那个才是约束**，这里只是别让用户白填一遍。
+     *
+     * @return {{value:number}|{error:string}}
+     */
+    function readCustomPoints() {
+        const raw = document.getElementById('rvCustomPoints').value.trim();
+        if (!raw) return { error: '请填写自定义积分' };
+        if (!/^\d+$/.test(raw)) return { error: '自定义积分只能是正整数（不能带小数点、负号或其它字符）' };
+        const n = parseInt(raw, 10);
+        if (n <= 1) return { error: '自定义积分必须大于 1' };
+        if (n > 10000) return { error: '自定义积分不能超过 10000' };
+        return { value: n };
+    }
 
     function ratingClass(rating) {
         if (rating === 'NOT_HELPFUL' || rating === 'USELESS') return 'neg';
@@ -282,26 +324,22 @@
         `).join('');
     }
 
+    /**
+     * 渲染分页。实现在 app.js 的 window.Pager —— 四个列表页共用一套，
+     * 之前每页各写各的，行为还不一样（有的隐藏总页数≤1、有的把所有页码都铺出来）。
+     */
     function renderPagination(total, page, size) {
-        const totalPages = Math.max(1, Math.ceil(total / size));
-        const ul = document.getElementById('pagination');
-        if (totalPages <= 1) { ul.innerHTML = ''; return; }
-
-        let html = '';
-        const item = (p, label, disabled, active) =>
-            `<li class="page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}">
-                <a class="page-link" href="#" data-page="${p}">${label}</a></li>`;
-
-        html += item(page - 1, '上一页', page <= 1, false);
-        for (let p = 1; p <= totalPages; p++) {
-            if (p === 1 || p === totalPages || Math.abs(p - page) <= 2) {
-                html += item(p, p, false, p === page);
-            } else if (Math.abs(p - page) === 3) {
-                html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+        Pager.render({
+            containerId: 'pagerBar',
+            total: total,
+            page: page,
+            size: size,
+            unit: '条',
+            onChange: function (newPage, newSize) {
+                pageSize = newSize;      // 换了每页条数要记住，否则翻页时又变回去
+                loadSuggestions(newPage);
             }
-        }
-        html += item(page + 1, '下一页', page >= totalPages, false);
-        ul.innerHTML = html;
+        });
     }
 
     // ================================================================
@@ -311,9 +349,25 @@
         document.getElementById('tierRow').innerHTML = tiers.map(t => `
             <div class="tier-btn ${selectedTier === t.value ? 'active' : ''}" data-tier="${t.value}">
                 <span class="t-name">${esc(t.label)}</span>
-                <span class="t-points">+${t.points}</span>
+                <span class="t-points">${t.points == null ? '自填' : '+' + t.points}</span>
             </div>
         `).join('');
+    }
+
+    /**
+     * 把已审核的条目描述成一句话，替代那些不该出现的操作控件。
+     *
+     * <p>不补这块的话，已审核的弹窗会只剩"原问题/原回答/建议"三块，
+     * 用户点「查看」看不到任何审核结论 —— 那是另一种形式的困惑。
+     * 换行靠 .ctx-body 的 white-space: pre-wrap 生效。
+     */
+    function describeReviewResult(row) {
+        const when = row.reviewedAt ? new Date(row.reviewedAt).toLocaleString('zh-CN') : '';
+        const head = row.status === 'ACCEPTED'
+            ? '✅ 已采纳' + (row.awardedPoints ? '，发放 ' + row.awardedPoints + ' 积分' : '')
+            : '🚫 已驳回';
+        const line = head + (when ? '（' + when + '）' : '');
+        return row.reviewRemark ? line + '\n备注：' + row.reviewRemark : line;
     }
 
     function openReview(row) {
@@ -327,14 +381,28 @@
         document.getElementById('rvHitType').textContent = row.hitType
             ? `· 命中类型 ${row.hitType}${row.retrievedCount != null ? ' · 检索到 ' + row.retrievedCount + ' 篇' : ''}`
             : '';
+        // 每次打开都回到默认档位，自定义输入框收起并清空 ——
+        // 上一条建议填过的分值不能带到下一条上
         document.getElementById('rvCustomPoints').value = '';
+        document.getElementById('rvCustomBlock').classList.add('d-none');
         document.getElementById('rvRemark').value = row.reviewRemark || '';
         renderTiers();
 
-        // 已审核过的只读展示，避免重复发放
+        // 已审核过的只读展示。
+        // **是隐藏而不是 disabled** —— 置灰的按钮看起来仍然像是"点不了但还能用"，
+        // 而「查看」这个入口本来就不该出现任何裁决控件。
         const pending = row.status === 'PENDING';
-        document.getElementById('acceptBtn').disabled = !pending;
-        document.getElementById('rejectBtn').disabled = !pending;
+        document.getElementById('rvActionBlock').classList.toggle('d-none', !pending);
+        document.getElementById('acceptBtn').classList.toggle('d-none', !pending);
+        document.getElementById('rejectBtn').classList.toggle('d-none', !pending);
+        // 没有可操作的东西时，"取消"这个词没有意义
+        document.getElementById('rvCancelBtn').textContent = pending ? '取消' : '关闭';
+
+        const resultBlock = document.getElementById('rvResultBlock');
+        resultBlock.classList.toggle('d-none', pending);
+        if (!pending) {
+            document.getElementById('rvResult').textContent = describeReviewResult(row);
+        }
 
         if (!reviewModalInstance) {
             reviewModalInstance = new bootstrap.Modal(document.getElementById('reviewModal'));
@@ -344,15 +412,39 @@
 
     async function submitReview(action) {
         const id = document.getElementById('rvSuggestionId').value;
-        const custom = document.getElementById('rvCustomPoints').value.trim();
+
+        // 先把"发多少分"这件事定下来，再发请求。
+        // 驳回不需要分值，两个字段都留 null（后端也不会去调 resolveAwardPoints）。
+        let tier = null;
+        let customPoints = null;
+        let amount = 0;
+        let amountNote = '';
 
         if (action === 'ACCEPT') {
-            const pts = custom ? parseInt(custom, 10) : null;
-            const tierLabel = selectedTier ? tiers.find(t => t.value === selectedTier).label : '';
-            const amount = pts || (selectedTier ? tiers.find(t => t.value === selectedTier).points : 0);
+            if (selectedTier === 'CUSTOM') {
+                // 选了自定义就必须填，且必须是大于 1 的整数 —— 校验在 readCustomPoints 里
+                const check = readCustomPoints();
+                if (check.error) {
+                    Swal.fire('积分不合法', check.error, 'warning');
+                    return;
+                }
+                customPoints = check.value;
+                amount = customPoints;
+                amountNote = '（自定义）';
+            } else {
+                const t = tiers.find(x => x.value === selectedTier);
+                if (!t) {
+                    Swal.fire('请选择档位', '请选一个奖励档位，或选「自定义」自己填', 'warning');
+                    return;
+                }
+                tier = selectedTier;
+                amount = t.points;
+                amountNote = '（' + t.label + '）';
+            }
+
             const confirm = await Swal.fire({
                 title: '确认采纳？',
-                html: `将给 <strong>${esc(currentRow.realName || currentRow.username)}</strong> 发放 <strong>${amount}</strong> 积分${pts ? '（自定义）' : '（' + esc(tierLabel) + '）'}`,
+                html: `将给 <strong>${esc(currentRow.realName || currentRow.username)}</strong> 发放 <strong>${amount}</strong> 积分${esc(amountNote)}`,
                 icon: 'question',
                 showCancelButton: true,
                 confirmButtonText: '确认采纳',
@@ -367,8 +459,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     action: action,
-                    tier: custom ? null : selectedTier,
-                    customPoints: custom ? parseInt(custom, 10) : null,
+                    tier: tier,
+                    customPoints: customPoints,
                     remark: document.getElementById('rvRemark').value.trim()
                 })
             });
@@ -424,16 +516,22 @@
         const btn = e.target.closest('[data-tier]');
         if (!btn) return;
         selectedTier = btn.dataset.tier;
-        document.getElementById('rvCustomPoints').value = '';
+
+        // 只有「自定义」才显示输入框。切回固定档位时把填过的数字清掉 ——
+        // 留着的话下次再选自定义时那个旧值会冒出来，很容易被当成默认值发出去。
+        const isCustom = selectedTier === 'CUSTOM';
+        document.getElementById('rvCustomBlock').classList.toggle('d-none', !isCustom);
+        const input = document.getElementById('rvCustomPoints');
+        if (isCustom) {
+            input.focus();
+        } else {
+            input.value = '';
+        }
         renderTiers();
     });
 
-    document.getElementById('pagination').addEventListener('click', function (e) {
-        const a = e.target.closest('a[data-page]');
-        if (!a) return;
-        e.preventDefault();
-        loadSuggestions(parseInt(a.dataset.page, 10));
-    });
+    // 分页的点击已由共享分页栏（app.js 的 window.Pager）内部处理，
+    // 这里不再需要委托监听 —— 容器也从 <ul id="pagination"> 换成了 #pagerBar。
 
     document.getElementById('acceptBtn').addEventListener('click', () => submitReview('ACCEPT'));
     document.getElementById('rejectBtn').addEventListener('click', () => submitReview('REJECT'));

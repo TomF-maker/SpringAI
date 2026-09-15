@@ -32,6 +32,18 @@ public class PageController {
         return "register";
     }
 
+    /**
+     * 忘记密码：邮箱验证码重置。
+     *
+     * <p>不需要 smsEnabled —— 这条流程走的是**邮箱**验证码，和短信总开关无关。
+     * 但注意：短信开启时注册只要求手机号、邮箱变成可选，那类没填邮箱的账号
+     * 走不了这条路，只能找管理员重置。
+     */
+    @GetMapping("/forgot-password")
+    public String forgotPassword() {
+        return "forgot-password";
+    }
+
     @GetMapping("/chat")
     public String chat() {
         return "chat";
