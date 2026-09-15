@@ -62,7 +62,7 @@ public class RagServiceImpl implements RagServiceI {
      * 阻塞式 RAG 问答
      */
     @Override
-    public Answer chatWithDocument(String question, String clientIp) {
+    public Answer chatWithDocument(String question, String conversationId, String clientIp) {
         log.info("🔍 收到RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
 
@@ -72,7 +72,7 @@ public class RagServiceImpl implements RagServiceI {
         String localAnswer = localKnowledgeService.match(question);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
-            Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
+            Long logId = recordQuestion(question, user, conversationId, KbQuestionLog.HIT_LOCAL, 0, null,
                     clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, localAnswer);
         }
@@ -81,7 +81,7 @@ public class RagServiceImpl implements RagServiceI {
         List<Document> relevantDocs = retrieveDocuments(question, user);
 
         if (relevantDocs.isEmpty()) {
-            Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_MISS, 0, null,
+            Long logId = recordQuestion(question, user, conversationId, KbQuestionLog.HIT_MISS, 0, null,
                     clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。");
         }
@@ -97,7 +97,7 @@ public class RagServiceImpl implements RagServiceI {
                 .content();
 
         long elapsed = System.currentTimeMillis() - startTime;
-        Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_DOC,
+        Long logId = recordQuestion(question, user, conversationId, KbQuestionLog.HIT_DOC,
                 relevantDocs.size(), null, clientIp, elapsed);
         log.info("✅ RAG问答完成，耗时: {}ms", elapsed);
 
@@ -177,7 +177,7 @@ public class RagServiceImpl implements RagServiceI {
      * @param userMessage 用户问题
      * @return 最终回答
      */
-    public Answer chatWithTool(String userMessage, String clientIp) {
+    public Answer chatWithTool(String userMessage, String conversationId, String clientIp) {
         log.info("🔧 进入工具调用模式，问题: {}", userMessage);
         // 这个方法此前完全没有计时，补上才能统计工具类问答的耗时
         long startTime = System.currentTimeMillis();
@@ -187,7 +187,7 @@ public class RagServiceImpl implements RagServiceI {
         String localAnswer = localKnowledgeService.match(userMessage);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
-            Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
+            Long logId = recordQuestion(userMessage, user, conversationId, KbQuestionLog.HIT_LOCAL, 0, null,
                     clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, localAnswer);
         }
@@ -239,13 +239,13 @@ public class RagServiceImpl implements RagServiceI {
                     .call()
                     .content();
 
-            Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_TOOL, 0,
+            Long logId = recordQuestion(userMessage, user, conversationId, KbQuestionLog.HIT_TOOL, 0,
                     extractToolName(firstResponse), clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, answer);
         }
 
         // 如果不是工具调用，直接返回
-        Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_DOC, 0, null,
+        Long logId = recordQuestion(userMessage, user, conversationId, KbQuestionLog.HIT_DOC, 0, null,
                 clientIp, System.currentTimeMillis() - startTime);
         return new Answer(logId, firstResponse);
     }

@@ -141,6 +141,7 @@ public class RagController {
      */
     @GetMapping("/chat")
     public Response<Map<String, Object>> chat(@RequestParam String question,
+                                              @RequestParam(required = false) String conversationId,
                                               HttpServletRequest request) {
         log.info("📨 收到RAG问答请求: {}", question);
 
@@ -154,18 +155,54 @@ public class RagController {
         final String clientIp = ipUtils.getClientIp(request);
         chatAccessGuard.checkAndRecord(anonymous, currentUser, clientIp);
 
+        final Long currentUserId = currentUser == null ? null : currentUser.getId();
+
+        // 会话归属。
+        //
+        // **这条路径以前完全不碰会话**：前端一直在传 conversationId，
+        // 但方法签名里根本没有这个参数，于是被静默忽略。后果是凡走这条路的提问
+        // 都不进历史记录 —— 而 shouldUseTool 命中「天气/新闻/热点/气温/预报/AI/人工智能」，
+        // 其中 **"AI" 是个极易命中的子串**（"最近AI有什么新闻"甚至"什么是AI"）。
+        // 用户连问两问、第一问含 "AI"，历史里就只剩第二问，看起来像丢了。
+        //
+        // 现在和流式路径共用同一个 resolveConversationId，行为对齐。
+        final String finalConversationId;
+        if (anonymous) {
+            finalConversationId = null;   // 匿名不做会话持久化，与流式路径一致
+        } else {
+            try {
+                finalConversationId = resolveConversationId(conversationId, question, currentUserId);
+            } catch (BizException e) {
+                // 本方法返回 Response 而不是 Flux，可以直接走信封，不用像流式那样
+                // 把消息当内容帧发出去
+                log.warn("会话校验未通过: {}", e.getMessage());
+                return Response.fail(ErrorCode.NOT_FOUND, e.getMessage());
+            }
+        }
+
         try {
             RagServiceI.Answer result;
             if (question.contains("天气") || question.contains("新闻") || question.contains("热点")) {
-                result = ragService.chatWithTool(question, clientIp);
+                result = ragService.chatWithTool(question, finalConversationId, clientIp);
             } else {
-                result = ragService.chatWithDocument(question, clientIp);
+                result = ragService.chatWithDocument(question, finalConversationId, clientIp);
             }
+
+            // 把回答写进会话。流式路径是在 doOnComplete 里做的（因为答案要边流边攒），
+            // 这里答案已经完整拿到，同步写即可。
+            if (finalConversationId != null) {
+                conversationService.addMessage(finalConversationId, currentUserId,
+                        "assistant", result.getAnswer());
+            }
+
             Map<String, Object> data = new HashMap<>();
             data.put("question", question);
             data.put("answer", result.getAnswer());
             // 前端提交答案评价时要靠它关联到这次提问
             data.put("questionLogId", result.getQuestionLogId());
+            // **前端靠它续接下一问**。不返回的话，走这条路的提问永远学不到会话 id，
+            // 下一次提问又会另起一个会话 —— 历史记录里就散成一堆。
+            data.put("conversationId", finalConversationId);
             return Response.success(data);
         } catch (Exception e) {
             log.error("❌ RAG问答失败: {}", e.getMessage(), e);
@@ -173,9 +210,9 @@ public class RagController {
             // 复用上面已经查到的 currentUser —— 失败路径反而比原来少查一次库。
             try {
                 questionLogService.record(question,
-                        currentUser == null ? null : currentUser.getId(),
+                        currentUserId,
                         currentUser == null ? null : currentUser.getDepartmentId(),
-                        null, KbQuestionLog.HIT_ERROR, 0, null, clientIp);
+                        finalConversationId, KbQuestionLog.HIT_ERROR, 0, null, clientIp);
             } catch (Throwable t) {
                 log.warn("异常埋点写入失败: {}", t.getMessage());
             }

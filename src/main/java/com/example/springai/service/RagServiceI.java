@@ -60,11 +60,12 @@ public interface RagServiceI {
     /**
      * 基于知识库的智能问答
      *
-     * @param question 用户问题
-     * @param clientIp 完整客户端 IP，仅用于提问埋点的归属地；取不到传 null
+     * @param question       用户问题
+     * @param conversationId 所属会话，仅用于提问埋点；匿名或不带会话时传 null
+     * @param clientIp       完整客户端 IP，仅用于提问埋点的归属地；取不到传 null
      * @return 基于文档内容的回答，附带这次提问的埋点 id
      */
-    Answer chatWithDocument(String question, String clientIp);
+    Answer chatWithDocument(String question, String conversationId, String clientIp);
 
     /**
      * 基于知识库的智能问答（流式输出）
@@ -79,9 +80,10 @@ public interface RagServiceI {
     /**
      * 支持工具调用的问答（手动解析 JSON）
      *
-     * @param userMessage 用户问题
-     * @param clientIp    完整客户端 IP，仅用于提问埋点的归属地；取不到传 null
+     * @param userMessage    用户问题
+     * @param conversationId 所属会话，仅用于提问埋点；匿名或不带会话时传 null
+     * @param clientIp       完整客户端 IP，仅用于提问埋点的归属地；取不到传 null
      * @return 最终回答，附带这次提问的埋点 id
      */
-    Answer chatWithTool(String userMessage, String clientIp);
+    Answer chatWithTool(String userMessage, String conversationId, String clientIp);
 }

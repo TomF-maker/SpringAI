@@ -543,6 +543,23 @@
     let conversationId = urlParams.get('conversationId') || null;
     console.log('📌 初始 conversationId:', conversationId);
 
+    /**
+     * 记住服务端返回的会话 id。
+     *
+     * 两条路都要调：流式从 meta 帧拿、非流式从响应体的 conversationId 拿。
+     * 之前**只有流式那条调了**，于是走工具/含 "AI" 的提问永远学不到会话 id，
+     * 下一次提问会另起一个会话 —— 历史记录里就散成一堆。
+     */
+    function rememberConversationId(id) {
+        if (!id) return;
+        conversationId = id;
+        // 同步到地址栏：刷新后仍能回到同一个会话
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.set('conversationId', id);
+        window.history.replaceState({}, '', newUrl);
+        console.log('📌 获取到 conversationId:', id);
+    }
+
     // ================================================================
     // 6. 加载历史消息（此时 addMessage 已定义）
     // ================================================================
@@ -598,6 +615,9 @@
             const data = await response.json();
             // 统一信封：成功取 data.data.answer，失败取 errMessage
             if (data.success) {
+                // 非流式路径也要接住会话 id（流式那条是从 meta 帧拿的）。
+                // 不然走这条路的提问学不到会话 id，下一问会另起一个会话。
+                rememberConversationId(data.data.conversationId);
                 const aiDiv = addMessage('ai', data.data.answer);
                 attachFeedbackWidget(aiDiv, message, data.data.answer, data.data.questionLogId);
             } else {
@@ -685,12 +705,7 @@
                         // 用户就会看到一坨 JSON。
                         if (parsed.type === 'meta') {
                             if (parsed.conversationId) {
-                                conversationId = parsed.conversationId;
-                                // 更新 URL 参数（刷新页面后保留）
-                                const newUrl = new URL(window.location);
-                                newUrl.searchParams.set('conversationId', conversationId);
-                                window.history.replaceState({}, '', newUrl);
-                                console.log('📌 获取到 conversationId:', conversationId);
+                                rememberConversationId(parsed.conversationId);
                             }
                             // 评价要挂到这次提问上，靠它关联
                             if (parsed.questionLogId) {
