@@ -13,6 +13,7 @@ import com.example.springai.entity.KbQuestionLog;
 import com.example.springai.entity.SysUser;
 import com.example.springai.service.ConversationServiceI;
 import com.example.springai.service.QuestionLogServiceI;
+import com.example.springai.service.RagConcurrencyLimiterI;
 import com.example.springai.service.RagServiceI;
 import com.example.springai.service.UserServiceI;
 import com.example.springai.utils.JwtUtils;
@@ -62,6 +63,10 @@ public class RagController {
     private MembershipServiceI membershipService;
     @Autowired
     private IpUtils ipUtils;
+
+    /** 并发闸门。两条提问路径都要过它 —— 服务器只有 2 核，不设限会同时把大家拖慢。 */
+    @Autowired
+    private RagConcurrencyLimiterI concurrencyLimiter;
 
     /**
      * 判定当前请求是不是未登录调用。
@@ -153,34 +158,45 @@ public class RagController {
         // 完整 IP 在这里取一次并捕获成局部变量：准入判定和提问埋点都要用，
         // 而 service 层读不到 request（归属地回填更是发生在工作线程上）。
         final String clientIp = ipUtils.getClientIp(request);
-        chatAccessGuard.checkAndRecord(anonymous, currentUser, clientIp);
 
         final Long currentUserId = currentUser == null ? null : currentUser.getId();
 
-        // 会话归属。
-        //
-        // **这条路径以前完全不碰会话**：前端一直在传 conversationId，
-        // 但方法签名里根本没有这个参数，于是被静默忽略。后果是凡走这条路的提问
-        // 都不进历史记录 —— 而 shouldUseTool 命中「天气/新闻/热点/气温/预报/AI/人工智能」，
-        // 其中 **"AI" 是个极易命中的子串**（"最近AI有什么新闻"甚至"什么是AI"）。
-        // 用户连问两问、第一问含 "AI"，历史里就只剩第二问，看起来像丢了。
-        //
-        // 现在和流式路径共用同一个 resolveConversationId，行为对齐。
-        final String finalConversationId;
-        if (anonymous) {
-            finalConversationId = null;   // 匿名不做会话持久化，与流式路径一致
-        } else {
-            try {
-                finalConversationId = resolveConversationId(conversationId, question, currentUserId);
-            } catch (BizException e) {
-                // 本方法返回 Response 而不是 Flux，可以直接走信封，不用像流式那样
-                // 把消息当内容帧发出去
-                log.warn("会话校验未通过: {}", e.getMessage());
-                return Response.fail(ErrorCode.NOT_FOUND, e.getMessage());
-            }
+        // 并发名额。和流式路径同一个闸门、同一套顺序（**先名额、后配额**）——
+        // 反过来的话服务器忙时被拒的请求会白扣一次配额。
+        final RagConcurrencyLimiterI.Permit permit;
+        try {
+            permit = concurrencyLimiter.acquire(currentUserId, clientIp);
+        } catch (BizException e) {
+            return Response.fail(ErrorCode.INTERNAL_ERROR, e.getMessage());
         }
 
+        // 配额判定。**必须让它自己的 BizException 逃出去** —— 原来的写法就是让它
+        // 冒到全局处理器转成 200 + errCode 429，套进下面的 catch (Exception) 会变成
+        // "处理失败: ..." + INTERNAL_ERROR，把"今日额度用完"伪装成服务端故障。
         try {
+            chatAccessGuard.checkAndRecord(anonymous, currentUser, clientIp);
+        } catch (BizException e) {
+            permit.close();
+            throw e;
+        }
+
+        // 声明在 try 之外：catch 里的异常埋点要用它 —— 带着会话 id 的失败提问
+        // 才能被归到对应会话下，否则看板上那一条是孤立的
+        String finalConversationId = null;
+        try {
+            // 会话归属。
+            //
+            // **这条路径以前完全不碰会话**：前端一直在传 conversationId，
+            // 但方法签名里根本没有这个参数，于是被静默忽略。后果是凡走这条路的提问
+            // 都不进历史记录 —— 而 shouldUseTool 命中「天气/新闻/热点/气温/预报/AI/人工智能」，
+            // 其中 **"AI" 是个极易命中的子串**（"最近AI有什么新闻"甚至"什么是AI"）。
+            // 用户连问两问、第一问含 "AI"，历史里就只剩第二问，看起来像丢了。
+            //
+            // 现在和流式路径共用同一个 resolveConversationId，行为对齐。
+            if (!anonymous) {
+                finalConversationId = resolveConversationId(conversationId, question, currentUserId);
+            }
+
             RagServiceI.Answer result;
             if (question.contains("天气") || question.contains("新闻") || question.contains("热点")) {
                 result = ragService.chatWithTool(question, finalConversationId, clientIp);
@@ -204,6 +220,11 @@ public class RagController {
             // 下一次提问又会另起一个会话 —— 历史记录里就散成一堆。
             data.put("conversationId", finalConversationId);
             return Response.success(data);
+        } catch (BizException e) {
+            // 会话不存在或不属于该用户 —— 单独接住，别让它掉进下面的通用分支
+            // 变成"处理失败: 会话不存在"（那会把一个 404 语义伪装成服务端故障）
+            log.warn("会话校验未通过: {}", e.getMessage());
+            return Response.fail(ErrorCode.NOT_FOUND, e.getMessage());
         } catch (Exception e) {
             log.error("❌ RAG问答失败: {}", e.getMessage(), e);
             // 失败也要留痕，否则看板上看不到任何异常，问题会被静默吞掉。
@@ -218,6 +239,11 @@ public class RagController {
             }
             // 保持与原行为一致的"处理失败但请求本身成功"语义：HTTP 200 + success:false
             return Response.fail(ErrorCode.INTERNAL_ERROR, "处理失败: " + e.getMessage());
+        } finally {
+            // **名额唯一的释放点。** 上面有四五个 return，还有异常路径 ——
+            // 逐个 close 迟早会漏，而漏一次就永久少一个名额（闸门会越来越早地喊"人数较多"，
+            // 而且不报任何错）。finally 是唯一不会漏的写法。
+            permit.close();
         }
     }
 
@@ -260,38 +286,50 @@ public class RagController {
         // 而 service 层读不到 request（归属地回填发生在工作线程上）。
         final String clientIp = ipUtils.getClientIp(request);
 
-        // 准入判定：匿名按 IP、会员放行、非会员按每日免费额度。超限也只能走 SSE
-        // （本方法返回 Flux，包不了 Response 信封），沿用上面鉴权失败的同一写法。
+        // 并发名额：**在配额之前拿**。反过来的话，服务器忙时被拒的请求会白扣一次配额 ——
+        // 用户什么都没得到，当日免费额度却少了一条。
+        final RagConcurrencyLimiterI.Permit permit;
         try {
-            chatAccessGuard.checkAndRecord(anonymous, currentUser, clientIp);
+            permit = concurrencyLimiter.acquire(
+                    currentUser == null ? null : currentUser.getId(), clientIp);
         } catch (BizException e) {
             return Flux.just(e.getMessage(), "[DONE]");
         }
 
-        log.info("📨 收到流式RAG问答请求: {}（{}）", question, anonymous ? "匿名" : "已登录");
-
-        // 2. 处理会话ID。匿名用户不做会话持久化（MongoDB 里不留无主会话），所以直接置空。
+        // 从配额判定到建流这一段，**任何一条失败路径都必须把名额还回去**。
+        // 漏一处就少一个名额，而且不报错 —— 只是闸门越来越早地喊"人数较多"，
+        // 要等到有人抱怨"明明没人用却总说忙"才会被发现。所以统一收口在这里。
         final Long currentUserId = currentUser == null ? null : currentUser.getId();
-
         final String finalConversationId;
-        if (anonymous) {
-            finalConversationId = null;
-        } else {
-            try {
-                finalConversationId = resolveConversationId(conversationId, question, currentUserId);
-            } catch (BizException e) {
-                // 会话不存在或不属于该用户。本方法返回 Flux，不能把异常抛出去 ——
-                // 那样客户端在流式响应里会收到一个 JSON 错误体，解析直接乱掉。
-                // 沿用本项目既有的写法：把消息当成一帧内容发出去。
-                log.warn("会话校验未通过: {}", e.getMessage());
-                return Flux.just(e.getMessage(), "[DONE]");
-            }
-        }
+        final RagServiceI.AnswerStream answerStream;
+        try {
+            // 准入判定：匿名按 IP、会员放行、非会员按每日免费额度。超限也只能走 SSE
+            // （本方法返回 Flux，包不了 Response 信封），沿用上面鉴权失败的同一写法。
+            chatAccessGuard.checkAndRecord(anonymous, currentUser, clientIp);
 
-        // 3. 先把流和埋点 id 一起拿到，**再**拼 meta 帧 ——
-        //    顺序反过来 meta 帧里就拿不到 questionLogId 了（它是在 service 里落库产生的）。
-        RagServiceI.AnswerStream answerStream =
-                ragService.chatWithDocumentStream(question, finalConversationId, clientIp);
+            log.info("📨 收到流式RAG问答请求: {}（{}）", question, anonymous ? "匿名" : "已登录");
+
+            // 匿名用户不做会话持久化（MongoDB 里不留无主会话），所以直接置空
+            finalConversationId = anonymous
+                    ? null
+                    : resolveConversationId(conversationId, question, currentUserId);
+
+            // 先把流和埋点 id 一起拿到，**再**拼 meta 帧 ——
+            // 顺序反过来 meta 帧里就拿不到 questionLogId 了（它是在 service 里落库产生的）。
+            answerStream = ragService.chatWithDocumentStream(question, finalConversationId, clientIp);
+        } catch (BizException e) {
+            // 会话不存在或不属于该用户。本方法返回 Flux，不能把异常抛出去 ——
+            // 那样客户端在流式响应里会收到一个 JSON 错误体，解析直接乱掉。
+            // 沿用本项目既有的写法：把消息当成一帧内容发出去。
+            permit.close();
+            log.warn("流式问答前置检查未通过: {}", e.getMessage());
+            return Flux.just(e.getMessage(), "[DONE]");
+        } catch (Throwable t) {
+            // 非业务异常（Mongo 挂了之类）在 return Flux 之前抛出是安全的 ——
+            // 此时还没开始写 SSE，全局处理器能正常返回 JSON 错误体。但名额要还。
+            permit.close();
+            throw t;
+        }
 
         // 4. 准备AI回答的收集器
         StringBuilder aiAnswer = new StringBuilder();
@@ -306,6 +344,8 @@ public class RagController {
                         + ",\"questionLogId\":" + answerStream.getQuestionLogId() + "}"
         );
 
+        final Long questionLogId = answerStream.getQuestionLogId();
+
         Flux<String> aiStream = answerStream.getContent()
                 .doOnNext(chunk -> aiAnswer.append(chunk))
                 .doOnComplete(() -> {
@@ -317,8 +357,22 @@ public class RagController {
                 })
                 .doOnError(e -> log.error("流式问答失败", e));
 
-        // 合并两个流：先发送 meta，再发送 AI 流
-        return Flux.concat(metaDataFlux, aiStream);
+        // 合并两个流：先发送 meta，再发送 AI 流。
+        //
+        // **doFinally 是名额唯一的释放点** —— complete / error / cancel 三种终止都会走到它。
+        // 分散在别处释放迟早会漏，而漏一次就永久少一个名额。
+        //
+        // 客户端点「取消」时前端 abort，Spring 取消这条链 → WebClient 断开与 Ollama 的连接
+        // → 模型真的停止生成。这就是"取消能减轻服务器负载"的机制，不需要额外做什么；
+        // 反过来说，只要断开链路是通的，就别在服务端加"主动杀 Ollama"的逻辑（那会误伤）。
+        return Flux.concat(metaDataFlux, aiStream)
+                .doOnCancel(() -> {
+                    log.info("🚫 客户端取消提问：已生成 {} 字，logId={}", aiAnswer.length(), questionLogId);
+                    // 半截答案不入库（doOnComplete 不会触发），但埋点要落成 CANCELLED ——
+                    // 否则看板上这次提问永远停在"已完成"，latency_ms 也一直是 NULL
+                    questionLogService.markStatus(questionLogId, KbQuestionLog.STATUS_CANCELLED);
+                })
+                .doFinally(signal -> permit.close());
     }
 
     /**

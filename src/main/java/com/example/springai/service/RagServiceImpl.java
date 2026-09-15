@@ -57,6 +57,57 @@ public class RagServiceImpl implements RagServiceI {
     @Value("${spring.ai.vectorstore.qdrant.collection-name:purchase_docs}")
     private String collectionName;
 
+    /**
+     * 检索不到文档时，是否让模型用自己的知识回答。
+     *
+     * <p>关掉就回到老行为：固定回一句"未找到相关内容"。留这个开关是因为线上跑的是
+     * qwen2.5:1.5b（只有 1.5B），自由回答的质量没法保证 —— 出问题时改一行 yaml 重启
+     * 就能退回，不用改代码重发版。
+     */
+    @Value("${app.rag.fallback.enabled:true}")
+    private boolean fallbackEnabled;
+
+    /**
+     * 检索的相似度下限（Qdrant 的 Cosine 分，越大越像）。
+     *
+     * <p>低于它的片段当作"没检到"。**没有这个阈值，Qdrant 永远会返回 limit 个片段** ——
+     * 它只是按相似度取最近的 k 个，哪怕最近的也毫不相关。
+     *
+     * <p>0.5 是实测出来的（bge-m3 + 这个库）：相关问题的最高分在 0.60~0.79，
+     * 不相关问题的最高分在 0.26~0.38，中间有明确空档。
+     * 换 embedding 模型必须重新测 —— 不同模型的分值尺度不可比。
+     */
+    @Value("${app.rag.retrieval.min-score:0.5}")
+    private double minScore;
+
+    /**
+     * 兜底回答前的来源声明。
+     *
+     * <p><b>这句不能省。</b>这是企业知识库，用户默认"回答是从公司文档里检索出来的"。
+     * 让模型自由发挥而不声明来源，等于把模型编的"公司采购流程"包装成制度依据 ——
+     * 比原来那句"没找到"危险得多。声明之后用户至少能分清哪句有出处。
+     */
+    private static final String FALLBACK_NOTICE =
+            "📚 知识库中未找到相关内容。以下回答来自 AI 的通用知识，**并非检索自你的文档**，"
+                    + "请勿作为公司制度或流程的依据；如需准确信息，请联系管理员补充相关文档。\n\n";
+
+    /** 关掉兜底（或兜底本身失败）时用的原文案。 */
+    private static final String NO_HIT_MESSAGE =
+            "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。";
+
+    /** 兜底时给模型的提示词。 */
+    private static final String FALLBACK_PROMPT = """
+            知识库中没有检索到与下面这个问题相关的内容。
+
+            请二选一：
+            1. 如果你的通用知识足以回答，就直接回答；
+            2. 如果这个问题依赖公司内部信息、或者你不确定，就明确说"这个问题我无法从现有资料中确认"。
+
+            无论选哪种，都不要编造具体的数字、人名、条款编号、时间或流程细节。
+
+            问题：%s
+            """;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     /**
      * 阻塞式 RAG 问答
@@ -81,9 +132,12 @@ public class RagServiceImpl implements RagServiceI {
         List<Document> relevantDocs = retrieveDocuments(question, user);
 
         if (relevantDocs.isEmpty()) {
+            // 埋点仍然是 MISS：检索**确实**没命中，"知识库缺口"这个统计依然成立 ——
+            // 看板照样能看出哪些问题该补文档，哪怕这一次模型自己答上来了。
+            // 不要因为"用户得到了回答"就改成别的类型，那会把缺口统计抹掉。
             Long logId = recordQuestion(question, user, conversationId, KbQuestionLog.HIT_MISS, 0, null,
                     clientIp, System.currentTimeMillis() - startTime);
-            return new Answer(logId, "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。");
+            return new Answer(logId, answerWithoutDocs(question));
         }
 
         // 2. 构建 Prompt
@@ -137,9 +191,20 @@ public class RagServiceImpl implements RagServiceI {
         if (relevantDocs.isEmpty()) {
             Long logId = questionLogService.record(question, userId, departmentId, convId,
                     KbQuestionLog.HIT_MISS, 0, null, clientIp);
-            questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
-            return new AnswerStream(logId,
-                    Flux.just("抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。"));
+            if (!fallbackEnabled) {
+                questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
+                return new AnswerStream(logId, Flux.just(NO_HIT_MESSAGE));
+            }
+            // 兜底也走流式。声明作为**第一帧**先发出去，模型的内容跟在后面 ——
+            // 顺序不能反：用户得先知道"这不是你文档里的答案"，再看内容。
+            Flux<String> content = Flux.concat(
+                    Flux.just(FALLBACK_NOTICE),
+                    chatClientBuilder.build()
+                            .prompt()
+                            .user(String.format(FALLBACK_PROMPT, question))
+                            .stream()
+                            .content());
+            return new AnswerStream(logId, withTelemetry(content, logId, startTime));
         }
 
         // 2. 构建 Prompt
@@ -151,11 +216,20 @@ public class RagServiceImpl implements RagServiceI {
                 KbQuestionLog.HIT_DOC, relevantDocs.size(), null, clientIp);
 
         // 4. 流式调用大模型
-        Flux<String> content = chatClientBuilder.build()
-                .prompt()
-                .user(prompt)
-                .stream()
-                .content()
+        return new AnswerStream(logId, withTelemetry(
+                chatClientBuilder.build().prompt().user(prompt).stream().content(),
+                logId, startTime));
+    }
+
+    /**
+     * 给一条内容流挂上埋点收尾：正常结束记耗时、出错记 ERROR、被取消记 CANCELLED。
+     *
+     * <p>抽出来是因为现在有**两条**流式分支（检索命中 / 检索为空兜底），
+     * 两边都必须有这套收尾。少挂一边的后果是那类提问的埋点永远停在默认状态，
+     * 而且 `latency_ms` 一直是 NULL —— 看板上完全看不出来，只是平均值算少了。
+     */
+    private Flux<String> withTelemetry(Flux<String> content, Long logId, long startTime) {
+        return content
                 .doOnComplete(() -> {
                     long elapsed = System.currentTimeMillis() - startTime;
                     log.info("✅ 流式RAG问答完成，耗时: {}ms", elapsed);
@@ -168,7 +242,30 @@ public class RagServiceImpl implements RagServiceI {
                         questionLogService.markStatus(logId, KbQuestionLog.STATUS_CANCELLED);
                     }
                 });
-        return new AnswerStream(logId, content);
+    }
+
+    /**
+     * 检索不到文档时的回答（非流式）。
+     *
+     * <p>兜底本身失败（模型超时、Ollama 挂了）时退回 {@link #NO_HIT_MESSAGE} ——
+     * 原来那条路径是 `Flux.just(常量)`，永远不会失败；换成调模型之后就有了失败的可能，
+     * 不能让用户因此看到"处理失败"。
+     */
+    private String answerWithoutDocs(String question) {
+        if (!fallbackEnabled) {
+            return NO_HIT_MESSAGE;
+        }
+        try {
+            String answer = chatClientBuilder.build()
+                    .prompt()
+                    .user(String.format(FALLBACK_PROMPT, question))
+                    .call()
+                    .content();
+            return FALLBACK_NOTICE + answer;
+        } catch (Exception e) {
+            log.warn("兜底回答生成失败，退回默认文案: {}", e.getMessage());
+            return NO_HIT_MESSAGE;
+        }
     }
 
     /**
@@ -244,8 +341,13 @@ public class RagServiceImpl implements RagServiceI {
             return new Answer(logId, answer);
         }
 
-        // 如果不是工具调用，直接返回
-        Long logId = recordQuestion(userMessage, user, conversationId, KbQuestionLog.HIT_DOC, 0, null,
+        // 不是工具调用，就把模型的回答直接返回。
+        //
+        // 埋点记 **MISS 而不是 DOC**：这条路径**压根没做检索**（relevantDocs 在这里不存在），
+        // retrievedCount 也是 0。记成 DOC 会把看板的"文档问答数"算多、命中率虚高 ——
+        // 一次没有任何文档参与的回答被算成"基于文档回答"。MISS 的语义正是
+        // "未检索到相关文档"，与这里的实际情况一致。
+        Long logId = recordQuestion(userMessage, user, conversationId, KbQuestionLog.HIT_MISS, 0, null,
                 clientIp, System.currentTimeMillis() - startTime);
         return new Answer(logId, firstResponse);
     }
@@ -357,13 +459,32 @@ public class RagServiceImpl implements RagServiceI {
                     }
                 }
 
-                if (content != null && !content.trim().isEmpty()) {
-                    Document doc = new Document(content, metadata);
-                    documents.add(doc);
+                if (content == null || content.trim().isEmpty()) {
+                    continue;
                 }
+
+                // 相似度阈值过滤。
+                //
+                // **没有这一步的话，Qdrant 永远会返回 limit 个片段** —— 它按余弦相似度
+                // 取最近的 k 个，哪怕最近的也不相关（问"法国的首都是哪里"照样返回 3 段
+                // 《创新辞典》）。后果有两个：一是不相关的片段被当成上下文塞给模型，
+                // 二是"检索为空"这个分支几乎永远不触发 —— 用户看到的一直是模型那句
+                // "文档中未找到相关信息"，因为提示词里就是这么教它的。
+                //
+                // 阈值 0.5 是实测出来的（bge-m3 + 这个库）：
+                //   相关问题的最高分   0.60 ~ 0.79
+                //   不相关问题的最高分 0.26 ~ 0.38
+                // 中间有 0.38~0.60 的空档，0.5 落在正中。
+                if (scoredPoint.getScore() < minScore) {
+                    log.debug("丢弃低分片段: score={} (阈值 {})", scoredPoint.getScore(), minScore);
+                    continue;
+                }
+
+                documents.add(new Document(content, metadata));
             }
 
-            log.info("📚 检索到 {} 个相关文档片段（已按权限过滤）", documents.size());
+            log.info("📚 检索到 {} 个相关文档片段（已按权限过滤 + 相似度 ≥ {}）",
+                    documents.size(), minScore);
             return documents;
         } catch (Exception e) {
             log.error("检索失败", e);

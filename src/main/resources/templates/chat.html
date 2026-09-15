@@ -163,6 +163,14 @@
         }
         .chat-input-area button:hover { background: #1557b0; }
         .chat-input-area button:disabled { background: #94a3b8; cursor: not-allowed; }
+        /* 取消按钮：和"发送"区分开，用描边而不是实心蓝 —— 它是个破坏性动作，
+           不该看起来像主操作 */
+        .chat-input-area #cancelBtn {
+            background: #fff;
+            color: #dc3545;
+            border: 1px solid #f5c2c7;
+        }
+        .chat-input-area #cancelBtn:hover { background: #fdf2f2; }
         .typing-indicator {
             display: none;
             align-self: flex-start;
@@ -286,6 +294,9 @@
 
             <div class="chat-input-area">
                 <input type="text" id="messageInput" placeholder="输入您的问题..." />
+                <!-- 只在提问进行中出现。点它会中断本次请求 —— 服务端那条 SSE 链被取消后
+                     会断开与 Ollama 的连接，模型真的停止生成，不只是前端不等了。 -->
+                <button type="button" id="cancelBtn" class="d-none">取消</button>
                 <button id="sendBtn">发送</button>
             </div>
         </div>
@@ -534,6 +545,7 @@
     const messagesContainer = document.getElementById('chatMessages');
     const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
     const typingIndicator = document.getElementById('typingIndicator');
 
     // ================================================================
@@ -594,6 +606,16 @@
     // ================================================================
     let isProcessing = false;
 
+    /**
+     * 当前进行中请求的取消句柄。
+     *
+     * <p>两条提问路径（流式 / 非流式）都会在发起前换一个新的 AbortController。
+     * abort() 之后 fetch 会以 AbortError 拒绝，同时浏览器断开连接 ——
+     * 服务端那条 Flux 链随之被取消，WebClient 断开与 Ollama 的连接，模型真的停止生成。
+     * 这才是"取消"能减轻服务器负载的原因，不只是前端不等了。
+     */
+    let currentAbort = null;
+
     function shouldUseTool(message) {
         const keywords = ['天气', '新闻', '热点', '气温', '预报', 'AI', '人工智能'];
         return keywords.some(k => message.includes(k));
@@ -609,8 +631,9 @@
         // 这里用独立的 typing-indicator（而不是气泡内占位）：本路径要拿到完整答案
         // 才建气泡，等待期间根本没有气泡可以放占位。
         setTyping(true);
+        currentAbort = new AbortController();
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: currentAbort.signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             // 统一信封：成功取 data.data.answer，失败取 errMessage
@@ -624,6 +647,13 @@
                 addMessage('ai', `❌ 出错了：${data.errMessage || '未知错误'}`);
             }
         } catch (error) {
+            if (error.name === 'AbortError') {
+                // 这条路径要拿到完整答案才建气泡，取消时什么都没有 ——
+                // 补一句说明，否则用户点了取消屏幕上一点反应都没有
+                console.log('🚫 用户取消了本次提问（非流式路径）');
+                addMessage('ai', '（已取消）');
+                return;
+            }
             console.error('Blocking error:', error);
             addMessage('ai', `❌ 请求失败：${error.message}`);
         } finally {
@@ -666,14 +696,17 @@
         // 这里**不调 setTyping** —— 等待提示已经放在气泡内部了。
         // 两个同时开会让用户看到一个独立的"正在思考"加一个带占位的气泡，重复。
         // 那个独立指示器留给 sendBlocking 用（那条路没有提前建气泡）。
+        // fullText 提到 try 外面：catch 里要用它把已收到的部分保住 ——
+        // 用户取消时那份半截答案是唯一能给他看的东西
+        let fullText = '';
+        currentAbort = new AbortController();
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: currentAbort.signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
             let buffer = '';
-            let fullText = '';
             let hasReceivedData = false;
             // 由 meta 帧带回来，评价时用它关联这次提问
             let currentQuestionLogId = null;
@@ -756,6 +789,19 @@
             scrollToBottom();
 
         } catch (error) {
+            if (error.name === 'AbortError') {
+                // 用户主动取消。**不是错误** —— 别弹"发送失败"，那会让人以为出了问题。
+                // 把已经收到的部分保留下来并标注，否则用户点了取消看到气泡变空会更困惑。
+                console.log('🚫 用户取消了本次提问');
+                // 不调 setTyping：取消按钮只在流式路径里没有独立指示器，
+                // 而且 setTyping(false) 在这儿是空操作（本来就没开）
+                contentDiv.textContent = fullText
+                    ? fullText + '\n\n（已取消）'
+                    : '（已取消）';
+                timeDiv.textContent = getCurrentTime();
+                scrollToBottom();
+                return;
+            }
             console.error('Stream error:', error);
             setTyping(false);
             contentDiv.textContent = '❌ 抱歉，发生了错误：' + error.message;
@@ -772,6 +818,7 @@
         messageInput.value = '';
         sendBtn.disabled = true;
         messageInput.disabled = true;
+        cancelBtn.classList.remove('d-none');
 
         addMessage('user', message);
 
@@ -788,6 +835,11 @@
             isProcessing = false;
             sendBtn.disabled = false;
             messageInput.disabled = false;
+            // 取消按钮收起、句柄清空。**必须放在 finally**：取消路径也会走到这里，
+            // 漏了的话按钮会一直挂在那儿，下一次提问前就出现两个"取消"。
+            cancelBtn.classList.add('d-none');
+            cancelBtn.disabled = false;   // 复位：上一次可能点过取消把它禁用了
+            currentAbort = null;
             messageInput.focus();
             // 每次问完刷新剩余次数（游客与非会员都适用）
             refreshQuotaBanner();
@@ -800,6 +852,19 @@
             e.preventDefault();
             sendMessage();
         }
+    });
+
+    // 取消进行中的提问。
+    // 这里只负责发出中断信号，善后由两条路径各自的 catch (AbortError) 做 ——
+    // 它们的收尾方式不同（流式保住半截答案，非流式什么都没有）。
+    cancelBtn.addEventListener('click', function () {
+        if (!currentAbort) return;
+        console.log('🚫 用户点了取消');
+        // abort → fetch 以 AbortError 拒绝 → 浏览器断开连接 → 服务端 Flux 被取消
+        // → WebClient 断开与 Ollama 的连接 → 模型停止生成。
+        // 链路是通的，所以**不需要**服务端再做什么"主动杀推理"的动作。
+        currentAbort.abort();
+        cancelBtn.disabled = true;   // 防连点；下一次提问时会复位
     });
 
     // ================================================================
