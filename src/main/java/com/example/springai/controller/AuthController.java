@@ -373,8 +373,24 @@ public class AuthController {
         // 一处就能覆盖全。LoginLogService 内部吞掉所有异常 —— 审计坏了不能把人挡在门外。
         loginLogService.record(user, loginType, clientIp, ipPrefix);
 
-        user.setLastLoginTime(LocalDateTime.now());
-        userMapper.updateById(user);
+        // 只更新"最后登录时间"这一列。
+        //
+        // **不要写成 `user.setLastLoginTime(...); userMapper.updateById(user);`** ——
+        // 那个 user 是登录开始时从库里读出来的**旧快照**，updateById 会写它所有非 null
+        // 字段，于是刚在 markLoginSuccess 里写对的新网段会被它携带的旧值覆盖回去。
+        //
+        // 症状很好认：last_login_time 是新的、last_login_ip 却是旧的。而且因为第一次
+        // 登录时旧值是 null（MyBatis-Plus 跳过 null），那次能写进去 —— 之后就被
+        // **永久冻在第一个值上**，换网络也永不更新。而这个 bug 只在换网络时才暴露，
+        // 那正是这个字段存在的意义。
+        //
+        // 这里传一个只设了 id 和目标列的**部分对象**：MyBatis-Plus 跳过 null 字段，
+        // 所以 SQL 里只有 id 和 last_login_time，结构上不可能覆盖任何别的列 ——
+        // 比"记得把脏字段置空"可靠，也不会顺带写回整个旧快照。
+        SysUser loginTimeUpdate = new SysUser();
+        loginTimeUpdate.setId(user.getId());
+        loginTimeUpdate.setLastLoginTime(LocalDateTime.now());
+        userMapper.updateById(loginTimeUpdate);
 
         return LoginResponse.builder()
                 .token(token)
