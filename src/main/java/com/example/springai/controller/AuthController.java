@@ -9,6 +9,7 @@ import com.example.springai.dto.RegisterRequest;
 import com.example.springai.dto.SendSmsCodeRequest;
 import com.example.springai.dto.SendCodeRequest;
 import com.example.springai.dto.VerifyLoginRequest;
+import com.example.springai.entity.KbLoginLog;
 import com.example.springai.entity.SysRole;
 import com.example.springai.entity.SysUser;
 import com.example.springai.entity.SysUserRole;
@@ -16,6 +17,7 @@ import com.example.springai.mapper.SysRoleMapper;
 import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.mapper.SysUserRoleMapper;
 import com.example.springai.service.EmailServiceI;
+import com.example.springai.service.LoginLogServiceI;
 import com.example.springai.service.LoginSecurityServiceI;
 import com.example.springai.service.SmsScene;
 import com.example.springai.service.SmsServiceI;
@@ -79,6 +81,9 @@ public class AuthController {
     @Autowired
     private IpUtils ipUtils;
 
+    @Autowired
+    private LoginLogServiceI loginLogService;
+
     /**
      * 短信功能总开关（{@code app.sms.enabled}）。
      *
@@ -111,7 +116,10 @@ public class AuthController {
         }
 
         // 3. 异地登录判定
-        String ipPrefix = ipUtils.toPrefix(ipUtils.getClientIp(httpRequest));
+        // 完整 IP 取一次：风控用它的 /24 前缀，登录审计用完整值。
+        // 两者**刻意不同**，别合并（前缀才是风控该比的，见 IpUtils.toPrefix 的说明）。
+        String clientIp = ipUtils.getClientIp(httpRequest);
+        String ipPrefix = ipUtils.toPrefix(clientIp);
         LoginSecurityServiceI.Decision decision = loginSecurityService.decide(user, ipPrefix);
 
         if (!decision.isAllowed()) {
@@ -132,7 +140,7 @@ public class AuthController {
         }
 
         // 4. 放行：签发 token 并记录本次网段
-        return Response.success(issueToken(user, ipPrefix, null));
+        return Response.success(issueToken(user, ipPrefix, null, clientIp, KbLoginLog.TYPE_PASSWORD));
     }
 
     /**
@@ -144,7 +152,8 @@ public class AuthController {
     public Response<LoginResponse> verifyLogin(@RequestBody VerifyLoginRequest request,
                                                HttpServletRequest httpRequest) {
         requireSmsEnabled();
-        String ipPrefix = ipUtils.toPrefix(ipUtils.getClientIp(httpRequest));
+        String clientIp = ipUtils.getClientIp(httpRequest);
+        String ipPrefix = ipUtils.toPrefix(clientIp);
 
         // 场景必须在 redeem 之前读 —— redeem 成功后会销毁挑战记录
         LoginSecurityServiceI.ChallengeInfo info = loginSecurityService.getChallenge(request.getChallengeId());
@@ -163,7 +172,7 @@ public class AuthController {
 
         log.info("登录挑战通过: userId={}, scene={}, 网段={}",
                 user.getId(), isBind ? "BIND" : "VERIFY", ipPrefix);
-        return Response.success(issueToken(user, ipPrefix, bindPhone));
+        return Response.success(issueToken(user, ipPrefix, bindPhone, clientIp, KbLoginLog.TYPE_SMS_VERIFY));
     }
 
     /**
@@ -325,11 +334,16 @@ public class AuthController {
 
     // ==================== 内部方法 ====================
 
-    private LoginResponse issueToken(SysUser user, String ipPrefix, String bindPhone) {
+    private LoginResponse issueToken(SysUser user, String ipPrefix, String bindPhone,
+                                     String clientIp, String loginType) {
         String token = jwtUtils.generateToken(user.getUsername());
 
         // 记录网段、刷新白名单；BIND 场景同时补绑手机号
         loginSecurityService.markLoginSuccess(user.getId(), ipPrefix, bindPhone);
+
+        // 登录审计。放在这里是因为这是两条登录路径（密码直登 / 异地验证）的唯一收口点，
+        // 一处就能覆盖全。LoginLogService 内部吞掉所有异常 —— 审计坏了不能把人挡在门外。
+        loginLogService.record(user, loginType, clientIp, ipPrefix);
 
         user.setLastLoginTime(LocalDateTime.now());
         userMapper.updateById(user);

@@ -62,7 +62,7 @@ public class RagServiceImpl implements RagServiceI {
      * 阻塞式 RAG 问答
      */
     @Override
-    public Answer chatWithDocument(String question) {
+    public Answer chatWithDocument(String question, String clientIp) {
         log.info("🔍 收到RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
 
@@ -73,7 +73,7 @@ public class RagServiceImpl implements RagServiceI {
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
             Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
-                    System.currentTimeMillis() - startTime);
+                    clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, localAnswer);
         }
 
@@ -82,7 +82,7 @@ public class RagServiceImpl implements RagServiceI {
 
         if (relevantDocs.isEmpty()) {
             Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_MISS, 0, null,
-                    System.currentTimeMillis() - startTime);
+                    clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, "抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。");
         }
 
@@ -98,7 +98,7 @@ public class RagServiceImpl implements RagServiceI {
 
         long elapsed = System.currentTimeMillis() - startTime;
         Long logId = recordQuestion(question, user, null, KbQuestionLog.HIT_DOC,
-                relevantDocs.size(), null, elapsed);
+                relevantDocs.size(), null, clientIp, elapsed);
         log.info("✅ RAG问答完成，耗时: {}ms", elapsed);
 
         return new Answer(logId, answer);
@@ -108,7 +108,7 @@ public class RagServiceImpl implements RagServiceI {
      * 流式 RAG 问答
      */
     @Override
-    public AnswerStream chatWithDocumentStream(String question, String conversationId) {
+    public AnswerStream chatWithDocumentStream(String question, String conversationId, String clientIp) {
         log.info("🔍 收到流式RAG问答请求: {}", question);
         long startTime = System.currentTimeMillis();
 
@@ -126,7 +126,7 @@ public class RagServiceImpl implements RagServiceI {
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，返回流式");
             Long logId = questionLogService.record(question, userId, departmentId, convId,
-                    KbQuestionLog.HIT_LOCAL, 0, null);
+                    KbQuestionLog.HIT_LOCAL, 0, null, clientIp);
             questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
             return new AnswerStream(logId, Flux.just(localAnswer));
         }
@@ -136,7 +136,7 @@ public class RagServiceImpl implements RagServiceI {
 
         if (relevantDocs.isEmpty()) {
             Long logId = questionLogService.record(question, userId, departmentId, convId,
-                    KbQuestionLog.HIT_MISS, 0, null);
+                    KbQuestionLog.HIT_MISS, 0, null, clientIp);
             questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
             return new AnswerStream(logId,
                     Flux.just("抱歉，在知识库中未找到与您问题相关的内容。请上传相关文档后再提问。"));
@@ -148,7 +148,7 @@ public class RagServiceImpl implements RagServiceI {
         // 3. 先落库再返回流：客户端中途断开时 doOnComplete 不会触发，
         //    但这条提问已经被记录下来了。
         final Long logId = questionLogService.record(question, userId, departmentId, convId,
-                KbQuestionLog.HIT_DOC, relevantDocs.size(), null);
+                KbQuestionLog.HIT_DOC, relevantDocs.size(), null, clientIp);
 
         // 4. 流式调用大模型
         Flux<String> content = chatClientBuilder.build()
@@ -177,7 +177,7 @@ public class RagServiceImpl implements RagServiceI {
      * @param userMessage 用户问题
      * @return 最终回答
      */
-    public Answer chatWithTool(String userMessage) {
+    public Answer chatWithTool(String userMessage, String clientIp) {
         log.info("🔧 进入工具调用模式，问题: {}", userMessage);
         // 这个方法此前完全没有计时，补上才能统计工具类问答的耗时
         long startTime = System.currentTimeMillis();
@@ -188,7 +188,7 @@ public class RagServiceImpl implements RagServiceI {
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，直接返回");
             Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_LOCAL, 0, null,
-                    System.currentTimeMillis() - startTime);
+                    clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, localAnswer);
         }
 
@@ -238,13 +238,13 @@ public class RagServiceImpl implements RagServiceI {
                     .content();
 
             Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_TOOL, 0,
-                    extractToolName(firstResponse), System.currentTimeMillis() - startTime);
+                    extractToolName(firstResponse), clientIp, System.currentTimeMillis() - startTime);
             return new Answer(logId, answer);
         }
 
         // 如果不是工具调用，直接返回
         Long logId = recordQuestion(userMessage, user, null, KbQuestionLog.HIT_DOC, 0, null,
-                System.currentTimeMillis() - startTime);
+                clientIp, System.currentTimeMillis() - startTime);
         return new Answer(logId, firstResponse);
     }
 
@@ -270,14 +270,18 @@ public class RagServiceImpl implements RagServiceI {
 
     /**
      * 记录一次提问。任何失败都只记日志，绝不影响问答本身。
+     *
+     * @param clientIp 完整客户端 IP，由 controller 在请求线程上取好传下来 ——
+     *                 service 层读不到 request，归属地回填又发生在工作线程上。
      */
     private Long recordQuestion(String question, SysUser user, String conversationId,
-                                String hitType, int retrievedCount, String toolName, long elapsedMs) {
+                                String hitType, int retrievedCount, String toolName,
+                                String clientIp, long elapsedMs) {
         try {
             Long logId = questionLogService.record(question,
                     user == null ? null : user.getId(),
                     user == null ? null : user.getDepartmentId(),
-                    conversationId, hitType, retrievedCount, toolName);
+                    conversationId, hitType, retrievedCount, toolName, clientIp);
             questionLogService.markCompleted(logId, elapsedMs);
             // 把 id 带出去：前端提交答案评价时要靠它关联到这次提问
             return logId;

@@ -41,6 +41,22 @@ public class KbQuestionLog {
     private String status;
     private String source;
 
+    // ---------- IP 归属地（BI 用） ----------
+    // 四个字段一起看：ipAddress 一定在请求线程上就写好了（它只是字符串，零成本），
+    // 但 country/province/city 是**异步补写**的 —— 归属地要外呼第三方，放在
+    // record() 里会直接抬高流式问答的首字延迟，所以由 QuestionLogService 的
+    // 专用线程池回填。没解析出来的就成了 NULL，报表上应显示为"未解析"，
+    // 不要让前端把它当成"来自未知地区"。
+
+    /** 完整客户端 IP。内网/取不到时为 null。注意这不是风控用的网段前缀。 */
+    private String ipAddress;
+    /** IP 归属国家。高德实现下恒为"中国"或 null（它只有国内数据）。 */
+    private String ipCountry;
+    /** IP 归属省份。BI 按省分组用这一列。 */
+    private String ipProvince;
+    /** IP 归属城市。 */
+    private String ipCity;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

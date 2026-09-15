@@ -100,6 +100,34 @@ public class IpUtils {
         return a.equals(b);
     }
 
+    /**
+     * 是否是私有 / 保留地址 —— 是的话绝不该拿去问外部定位接口。
+     *
+     * <p>解析不出来时返回 <b>true</b>（fail closed）。这是刻意的，也和
+     * {@link #sameNetwork} 的 fail-open 相反：那里是"别把用户锁在门外"，
+     * 这里是"别拿垃圾字符串去打扰外部服务、白烧配额"。
+     *
+     * <p>注意 {@code isSiteLocalAddress()} 只覆盖 10/8、172.16/12、192.168/16
+     * 和已废弃的 fec0::/10，<b>不覆盖 fc00::/7（ULA）和 100.64/10（CGNAT）</b>，
+     * 这两个得手判 —— 否则内网地址会被送去外呼。
+     */
+    public boolean isPrivate(String ip) {
+        InetAddress addr = parseLiteral(ip);
+        if (addr == null) {
+            return true;
+        }
+        if (addr.isLoopbackAddress() || addr.isAnyLocalAddress()
+                || addr.isLinkLocalAddress() || addr.isSiteLocalAddress()
+                || addr.isMulticastAddress()) {
+            return true;
+        }
+        byte[] b = addr.getAddress();
+        if (b.length == 16 && (b[0] & 0xfe) == 0xfc) {
+            return true;                                    // fc00::/7
+        }
+        return b.length == 4 && (b[0] & 0xff) == 100 && (b[1] & 0xc0) == 64;  // 100.64/10
+    }
+
     // ==================== 内部方法 ====================
 
     private Set<String> trustedProxies() {

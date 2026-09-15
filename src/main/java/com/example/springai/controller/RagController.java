@@ -149,14 +149,17 @@ public class RagController {
         // 超限时抛 BizException，由全局处理器转成 200 + errCode 429。
         boolean anonymous = isAnonymous();
         SysUser currentUser = currentUserOrNull(anonymous);
-        chatAccessGuard.checkAndRecord(anonymous, currentUser, ipUtils.getClientIp(request));
+        // 完整 IP 在这里取一次并捕获成局部变量：准入判定和提问埋点都要用，
+        // 而 service 层读不到 request（归属地回填更是发生在工作线程上）。
+        final String clientIp = ipUtils.getClientIp(request);
+        chatAccessGuard.checkAndRecord(anonymous, currentUser, clientIp);
 
         try {
             RagServiceI.Answer result;
             if (question.contains("天气") || question.contains("新闻") || question.contains("热点")) {
-                result = ragService.chatWithTool(question);
+                result = ragService.chatWithTool(question, clientIp);
             } else {
-                result = ragService.chatWithDocument(question);
+                result = ragService.chatWithDocument(question, clientIp);
             }
             Map<String, Object> data = new HashMap<>();
             data.put("question", question);
@@ -172,7 +175,7 @@ public class RagController {
                 questionLogService.record(question,
                         currentUser == null ? null : currentUser.getId(),
                         currentUser == null ? null : currentUser.getDepartmentId(),
-                        null, KbQuestionLog.HIT_ERROR, 0, null);
+                        null, KbQuestionLog.HIT_ERROR, 0, null, clientIp);
             } catch (Throwable t) {
                 log.warn("异常埋点写入失败: {}", t.getMessage());
             }
@@ -216,10 +219,14 @@ public class RagController {
             return Flux.just("用户不存在，请重新登录", "[DONE]");
         }
 
+        // 完整 IP 取一次复用：准入判定和下面的提问埋点都要用，
+        // 而 service 层读不到 request（归属地回填发生在工作线程上）。
+        final String clientIp = ipUtils.getClientIp(request);
+
         // 准入判定：匿名按 IP、会员放行、非会员按每日免费额度。超限也只能走 SSE
         // （本方法返回 Flux，包不了 Response 信封），沿用上面鉴权失败的同一写法。
         try {
-            chatAccessGuard.checkAndRecord(anonymous, currentUser, ipUtils.getClientIp(request));
+            chatAccessGuard.checkAndRecord(anonymous, currentUser, clientIp);
         } catch (BizException e) {
             return Flux.just(e.getMessage(), "[DONE]");
         }
@@ -247,7 +254,7 @@ public class RagController {
         // 3. 先把流和埋点 id 一起拿到，**再**拼 meta 帧 ——
         //    顺序反过来 meta 帧里就拿不到 questionLogId 了（它是在 service 里落库产生的）。
         RagServiceI.AnswerStream answerStream =
-                ragService.chatWithDocumentStream(question, finalConversationId);
+                ragService.chatWithDocumentStream(question, finalConversationId, clientIp);
 
         // 4. 准备AI回答的收集器
         StringBuilder aiAnswer = new StringBuilder();
