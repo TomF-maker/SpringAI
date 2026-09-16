@@ -3,6 +3,7 @@ package com.example.springai.controller;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.springai.common.ErrorCode;
 import com.example.springai.common.Response;
+import com.example.springai.dto.CaptchaResponse;
 import com.example.springai.dto.LoginRequest;
 import com.example.springai.dto.LoginResponse;
 import com.example.springai.dto.RegisterRequest;
@@ -18,6 +19,7 @@ import com.example.springai.mapper.SysRoleMapper;
 import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.mapper.SysUserRoleMapper;
 import com.example.springai.exception.BizException;
+import com.example.springai.service.CaptchaServiceI;
 import com.example.springai.service.CompanyServiceI;
 import com.example.springai.service.DepartmentServiceI;
 import com.example.springai.service.EmailServiceI;
@@ -32,7 +34,9 @@ import com.example.springai.service.impl.SmsRateLimiter;
 import com.example.springai.utils.IpUtils;
 import com.example.springai.utils.JwtUtils;
 import com.example.springai.utils.PhoneUtils;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -104,6 +108,20 @@ public class AuthController {
     /** 邮箱验证码发送限流。此前这个接口完全裸露，可以拿任意邮箱反复触发发信。 */
     @Autowired
     private EmailCodeRateLimiter emailCodeRateLimiter;
+
+    /** 图形验证码：发码接口的第一道门，挡的是"拿 Postman 直接刷"这类脚本化滥用。 */
+    @Autowired
+    private CaptchaServiceI captchaService;
+
+    /**
+     * 图形验证码总开关（{@code app.captcha.enabled}），默认**开**。
+     *
+     * <p>留着它是因为画图依赖 AWT —— 万一服务器上字体/headless 出问题，
+     * 有个不停机就能降级的口子（代价是发码接口裸奔，所以关闭时会打启动横幅）。
+     * 开关的判定只放在 {@link #requireCaptcha} 一处，别散到调用点上去。
+     */
+    @Value("${app.captcha.enabled:true}")
+    private boolean captchaEnabled;
 
     /**
      * 短信功能总开关（{@code app.sms.enabled}）。
@@ -229,6 +247,13 @@ public class AuthController {
     public Response<Map<String, Object>> sendSmsCode(@RequestBody SendSmsCodeRequest request,
                                                      HttpServletRequest httpRequest) {
         requireSmsEnabled();
+
+        // 图形验证码是**唯一的第一道门**，排在任何有副作用的检查之前（详见 sendCode 的注释）。
+        // 这里没有先判手机号格式是因为做不到：登录挑战场景下号码由 challengeId 解析，
+        // 请求体里的 phone 本来就允许为空 —— 想在校验图码之前统一判格式，
+        // 就得把 challengeId 的解析逻辑抄一份上来。
+        requireCaptcha(request.getCaptchaId(), request.getCaptchaCode());
+
         String phone = PhoneUtils.normalize(request.getPhone());
         String scene = request.getScene() == null ? SmsScene.REGISTER : request.getScene();
 
@@ -285,7 +310,22 @@ public class AuthController {
     @PostMapping("/send-code")
     public Response<Void> sendCode(@RequestBody SendCodeRequest request,
                                    HttpServletRequest httpRequest) {
-        String email = request.getEmail();
+        // 纯输入校验（无副作用）先跑，别让一个明显不合法的请求白白烧掉一张图形验证码 ——
+        // 图形验证码是**一次性**的，消耗了就得重新认一张图。
+        String email = request.getEmail() == null ? null : request.getEmail().trim();
+        if (email == null || email.isEmpty()) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "请填写邮箱");
+        }
+
+        // 图形验证码：**唯一的第一道门**。它之后才允许出现有副作用的检查 ——
+        // 顺序反过来（先限流再验图码）的话，一个不解图码的攻击者只要每 59 秒打一次
+        // victim@x.com，就能靠 EmailCodeRateLimiter 的 SETNX 把那个邮箱**永久钉死在冷却里**：
+        // 受害者的真实请求永远收到"发送过于频繁"，注册和找回密码直接不可用。
+        //
+        // 另外：这个调用**必须留在下面那个 try 之外**。BizException 也是 RuntimeException，
+        // 落进那个 catch 就会顺手把刚设上的 60 秒冷却删掉（releaseCooldown），限流形同虚设。
+        requireCaptcha(request.getCaptchaId(), request.getCaptchaCode());
+
         String clientIp = ipUtils.getClientIp(httpRequest);
         emailCodeRateLimiter.checkAndRecord(email, clientIp);
 
@@ -296,6 +336,56 @@ public class AuthController {
             throw e;
         }
         return Response.success();
+    }
+
+    /**
+     * 签发一张图形验证码。匿名可调 —— 注册和找回密码的人本来就还没登录。
+     *
+     * <p>用 JSON + base64 而不是直接返回图片：{@code <img src>} 加载失败只能显示一个碎图标，
+     * 签发限流（429）和 Redis 抖动（500）都没有地方展示；而且图片 URL 会被浏览器缓存，
+     * "点了刷新还是同一张图"是个经典坑。
+     *
+     * <p>{@code Cache-Control: no-store} 是必须的：这个响应体里就是明文答案，
+     * 被中间层或浏览器缓存住的话，下一个请求拿到的还是同一张图。
+     */
+    @GetMapping("/captcha")
+    public Response<CaptchaResponse> captcha(HttpServletRequest httpRequest,
+                                             HttpServletResponse httpResponse) {
+        httpResponse.setHeader("Cache-Control", "no-store");
+        String clientIp = ipUtils.getClientIp(httpRequest);
+        return Response.success(captchaService.issue(clientIp));
+    }
+
+    /**
+     * 图形验证码的唯一开关点。
+     *
+     * <p>开关**只放在这一处**：{@code CaptchaService.verify} 永远说真话，
+     * 否则每个调用点、每个单测都要多问一句"这个 true 是真通过了还是被关掉了"。
+     *
+     * <p>{@code :true} 这个默认值不能改成 {@code :false}：后者意味着配置里一个拼错的
+     * key 就能**静默**关掉全部防护，而没有任何地方会报错。
+     */
+    private void requireCaptcha(String captchaId, String captchaCode) {
+        if (!captchaEnabled) {
+            return;
+        }
+        if (!captchaService.verify(captchaId, captchaCode)) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "图形验证码错误或已过期");
+        }
+    }
+
+    /**
+     * 图形验证码总开关关闭时的开机横幅。
+     *
+     * <p>照 {@code app.sms.enabled} 的做法：危险的开关必须在启动日志里喊一声，
+     * 否则"为什么 Postman 还能直接刷验证码"要查到配置文件才会明白。
+     */
+    @PostConstruct
+    void warnIfCaptchaDisabled() {
+        if (!captchaEnabled) {
+            log.warn("⚠️ 图形验证码已关闭（app.captcha.enabled=false）—— "
+                    + "/api/auth/send-code 与 /api/auth/send-sms-code 不再要求认图，等于裸奔");
+        }
     }
 
     /**

@@ -15,4 +15,13 @@ public class SendSmsCodeRequest {
      * 服务端不需要把完整手机号回传给前端。
      */
     private String challengeId;
+
+    /**
+     * 图形验证码的 id 与用户输入。
+     *
+     * <p><b>这两个字段是必填的</b>，三个场景（注册 / 登录校验 / 补绑手机号）都要带。
+     * 少传任何一个都会被判为"图形验证码错误或已过期"。
+     */
+    private String captchaId;
+    private String captchaCode;
 }

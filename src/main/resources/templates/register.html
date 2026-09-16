@@ -26,6 +26,10 @@
         .code-row { display: flex; gap: 8px; }
         .code-row input { flex: 1; }
         .code-row button { flex-shrink: 0; }
+        /* 宽高写死：不写的话图加载完会把下面的表单项顶下去。flex-shrink: 0 同理，
+           否则窄屏上它会被压扁。 */
+        .captcha-img { flex-shrink: 0; width: 130px; height: 48px; border-radius: 6px;
+                       background: #f1f5f9; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -70,6 +74,20 @@
             </div>
         </th:block>
 
+        <!-- ============ 图形验证码 ============
+             刻意放在上面两个 th:block **之外**：短信和邮箱两条路都要它。
+             放进 th:unless="${smsEnabled}" 里的话，短信开启那天注册页会直接不可用，
+             而本地（smsEnabled=false）永远测不出来。 -->
+        <div class="mb-3">
+            <label class="form-label" for="captchaCode">图形验证码</label>
+            <div class="code-row">
+                <input type="text" id="captchaCode" class="form-control" placeholder="请输入图中的字符"
+                       maxlength="4" autocomplete="off" spellcheck="false"
+                       autocapitalize="characters" required>
+                <img id="captchaImg" class="captcha-img" alt="">
+            </div>
+        </div>
+
         <div class="mb-3">
             <label class="form-label">密码</label>
             <input type="password" id="password" class="form-control" placeholder="至少8位" required minlength="8">
@@ -110,6 +128,7 @@
     </div>
 </div>
 
+<script src="/js/captcha.js?v=1"></script>
 <script th:inline="javascript">
     // 由服务端注入：决定走「手机号 + 短信验证码」还是「邮箱 + 邮箱验证码」
     const SMS_ENABLED = /*[[${smsEnabled}]]*/ false;
@@ -117,6 +136,14 @@
     let countdown = 0;
     const sendBtn = document.getElementById('sendCodeBtn');
     const emailInput = document.getElementById('email');
+
+    // 图形验证码：两条发码路径（短信 / 邮箱）都要求它
+    const captcha = createCaptcha({
+        imgId: 'captchaImg',
+        inputId: 'captchaCode',
+        onError: function (msg) { alert(msg); }
+    });
+    captcha.refresh();
 
     function startCountdown() {
         countdown = 60;
@@ -154,6 +181,16 @@
             body = { email: email, type: 'register' };
         }
 
+        // 图形验证码是**必填**的。还没签发成功就直接本地拦住 ——
+        // 发个 null 上去只会换来一句看不懂的"图形验证码错误或已过期"。
+        const cp = captcha.payload();
+        if (!cp) {
+            alert('图形验证码未加载，请点击图片刷新后再试');
+            return;
+        }
+        body.captchaId = cp.captchaId;
+        body.captchaCode = cp.captchaCode;
+
         sendBtn.disabled = true;
         try {
             const response = await fetch(url, {
@@ -167,13 +204,18 @@
             // 服务端故障（SMTP 挂了等）会是 HTTP 500 + success:false，这里也能接住。
             if (data.success) {
                 alert(SMS_ENABLED ? '验证码已发送' : '验证码已发送到您的邮箱');
+                await captcha.refresh();
                 startCountdown();
             } else {
                 alert(data.errMessage || '发送失败');
+                // 图形验证码是一次性的：被限流拒绝时它也已经消耗掉了，
+                // 不换一张的话用户第二次点必然报"图形验证码错误"。
+                await captcha.refresh();
                 sendBtn.disabled = false;
             }
         } catch (err) {
             alert('网络错误');
+            await captcha.refresh();
             sendBtn.disabled = false;
         }
     });

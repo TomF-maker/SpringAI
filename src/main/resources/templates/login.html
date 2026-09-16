@@ -28,6 +28,10 @@
         .code-row { display: flex; gap: 8px; }
         .code-row input { flex: 1; }
         .code-row button { flex-shrink: 0; }
+        /* 宽高写死：不写的话图加载完会把下面的按钮顶下去。flex-shrink: 0 同理，
+           否则窄屏上它会被压扁。 */
+        .captcha-img { flex-shrink: 0; width: 130px; height: 48px; border-radius: 6px;
+                       background: #f1f5f9; cursor: pointer; }
         .hint { font-size: 13px; color: #64748b; }
     </style>
 </head>
@@ -73,6 +77,17 @@
             </div>
         </div>
 
+        <!-- 图形验证码：发短信验证码那一步的必填项，是两个不同的框，别填错 -->
+        <div class="mb-3">
+            <label class="form-label">图形验证码</label>
+            <div class="code-row">
+                <input type="text" id="captchaCode" class="form-control" placeholder="请输入图中的字符"
+                       maxlength="4" autocomplete="off" spellcheck="false"
+                       autocapitalize="characters">
+                <img id="captchaImg" class="captcha-img" alt="">
+            </div>
+        </div>
+
         <div id="verifyError" class="alert alert-danger d-none"></div>
         <button type="submit" class="btn btn-primary">验 证</button>
         <div class="links">
@@ -85,6 +100,7 @@
     </div>
 </div>
 
+<script src="/js/captcha.js?v=1"></script>
 <script>
     const loginForm = document.getElementById('loginForm');
     const verifyForm = document.getElementById('verifyForm');
@@ -101,6 +117,15 @@
     let challengeId = null;
     let challengeScene = null;
     let countdownTimer = null;
+
+    // 图形验证码。**刻意不在页面加载时就签发** —— 第一步是密码表单，
+    // 用户可能几分钟后才走到第二步，那时这张图早过期了，第一次点"获取验证码"必然失败。
+    // 签发时机在 enterVerifyStep()。
+    const captcha = createCaptcha({
+        imgId: 'captchaImg',
+        inputId: 'captchaCode',
+        onError: function (msg) { showError(verifyError, msg); }
+    });
 
     function showError(el, message) {
         el.textContent = message;
@@ -141,6 +166,9 @@
         verifyForm.classList.add('d-none');
         loginForm.classList.remove('d-none');
         registerLink.classList.remove('d-none');
+        // 回到第一步就作废这张图，下次进第二步会重新签发；
+        // 不清的话第二次进来用的还是已被消费的 captchaId，必然报"图形验证码错误"。
+        captcha.reset();
     }
 
     // ================================================================
@@ -186,6 +214,10 @@
         challengeId = data.challengeId;
         challengeScene = data.scene;
 
+        // 到这一步才签发图形验证码（理由见文件上方 captcha 的声明处）。
+        // 故意不 await：签发是网络请求，失败会走 onError 提示，不该卡住表单切换。
+        captcha.refresh();
+
         loginForm.classList.add('d-none');
         registerLink.classList.add('d-none');
         verifyForm.classList.remove('d-none');
@@ -205,6 +237,9 @@
     // 第二步：发送验证码
     // ================================================================
     sendCodeBtn.addEventListener('click', async function () {
+        // 倒计时期间不重复发（另两个页面本来就有这道判断，这里缺了）
+        if (countdownTimer) return;
+
         verifyError.classList.add('d-none');
 
         const body = { challengeId: challengeId };
@@ -218,6 +253,16 @@
             body.scene = 'bind';
         }
 
+        // 图形验证码是**必填**的。还没签发成功就直接本地拦住 ——
+        // 发个 null 上去只会换来一句看不懂的"图形验证码错误或已过期"。
+        const cp = captcha.payload();
+        if (!cp) {
+            showError(verifyError, '图形验证码未加载，请点击图片刷新后再试');
+            return;
+        }
+        body.captchaId = cp.captchaId;
+        body.captchaCode = cp.captchaCode;
+
         sendCodeBtn.disabled = true;
         try {
             const response = await fetch('/api/auth/send-sms-code', {
@@ -229,12 +274,17 @@
 
             if (!data.success) {
                 showError(verifyError, data.errMessage || '验证码发送失败');
+                // 图形验证码是一次性的：被限流拒绝时它也已经消耗掉了，
+                // 不换一张的话用户第二次点必然报"图形验证码错误"。
+                await captcha.refresh();
                 sendCodeBtn.disabled = false;
                 return;
             }
+            await captcha.refresh();
             startCountdown();
         } catch (err) {
             showError(verifyError, '网络错误，请稍后重试');
+            await captcha.refresh();
             sendCodeBtn.disabled = false;
         }
     });
