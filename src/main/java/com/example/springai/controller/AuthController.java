@@ -21,6 +21,8 @@ import com.example.springai.exception.BizException;
 import com.example.springai.service.CompanyServiceI;
 import com.example.springai.service.DepartmentServiceI;
 import com.example.springai.service.EmailServiceI;
+import com.example.springai.service.impl.EmailCodeRateLimiter;
+import com.example.springai.service.impl.LoginAttemptLimiter;
 import com.example.springai.service.LoginLogServiceI;
 import com.example.springai.service.LoginSecurityServiceI;
 import com.example.springai.service.SmsScene;
@@ -37,6 +39,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -94,6 +97,14 @@ public class AuthController {
     @Autowired
     private CompanyServiceI companyService;
 
+    /** 登录密码重试限制（账号锁定 + IP 节流）。此前完全没有，等于爆破成本为零。 */
+    @Autowired
+    private LoginAttemptLimiter loginAttemptLimiter;
+
+    /** 邮箱验证码发送限流。此前这个接口完全裸露，可以拿任意邮箱反复触发发信。 */
+    @Autowired
+    private EmailCodeRateLimiter emailCodeRateLimiter;
+
     /**
      * 短信功能总开关（{@code app.sms.enabled}）。
      *
@@ -118,23 +129,40 @@ public class AuthController {
     @PostMapping("/login")
     public Response<LoginResponse> login(@RequestBody LoginRequest request,
                                          HttpServletRequest httpRequest) {
-        // 1. 认证
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
+        // 完整 IP 取一次复用：登录尝试限流、异地风控、登录审计都要用。
+        // 从"认证之后"提到了"认证之前"—— 见下面第 1 步。
+        String clientIp = ipUtils.getClientIp(httpRequest);
+
+        // 1. 登录尝试限流（账号锁定 + IP 节流）。
+        // **必须在 authenticate 之前**：放到后面就是"先把密码比完，再决定该不该让他试"，
+        // 那等于没限流 —— 爆破者照样能试完所有密码，只是失败时多收一个提示。
+        loginAttemptLimiter.checkAllowed(request.getUsername(), clientIp);
+
+        // 2. 认证
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+            );
+        } catch (AuthenticationException e) {
+            // 失败要计数。注意 BadCredentialsException 在 Spring 里也用来表示"用户不存在"
+            // （避免用户名枚举），所以这里按"一次失败的登录尝试"计是合适的。
+            loginAttemptLimiter.recordFailure(request.getUsername());
+            throw e;   // 原样抛出：全局处理器靠它的类型返回 401，**别改成 200**
+        }
+        // 成功就清零，别让几次手滑累积到后面把人锁了
+        loginAttemptLimiter.recordSuccess(request.getUsername());
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        // 2. 从认证信息获取用户
+        // 3. 从认证信息获取用户
         String username = authentication.getName();
         SysUser user = findByUsernameOrEmail(username);
         if (user == null) {
             throw new RuntimeException("用户不存在");
         }
 
-        // 3. 异地登录判定
-        // 完整 IP 取一次：风控用它的 /24 前缀，登录审计用完整值。
-        // 两者**刻意不同**，别合并（前缀才是风控该比的，见 IpUtils.toPrefix 的说明）。
-        String clientIp = ipUtils.getClientIp(httpRequest);
+        // 4. 异地登录判定
+        // 网段用 IP 的 /24 或 /64 前缀（前缀才是风控该比的，见 IpUtils.toPrefix 的说明）。
         String ipPrefix = ipUtils.toPrefix(clientIp);
         LoginSecurityServiceI.Decision decision = loginSecurityService.decide(user, ipPrefix);
 
@@ -155,7 +183,7 @@ public class AuthController {
                     .build());
         }
 
-        // 4. 放行：签发 token 并记录本次网段
+        // 5. 放行：签发 token 并记录本次网段
         return Response.success(issueToken(user, ipPrefix, null, clientIp, KbLoginLog.TYPE_PASSWORD));
     }
 
@@ -246,14 +274,27 @@ public class AuthController {
     }
 
     /**
-     * 发送邮箱验证码（保留原有能力，密码重置等流程仍在用）。
+     * 发送邮箱验证码。注册和忘记密码两条流程都走它。
      *
      * <p>发送失败不再吞掉返回 200：SMTP 挂了属于服务端故障，直接抛出去，
      * 由全局处理器返回 500 + 信封，前端看 {@code success:false} 即可。
+     *
+     * <p><b>限流在这里加</b>：此前这个接口完全裸露，任何人都能拿任意邮箱反复触发发信。
+     * 和短信那边一样，发送失败时要归还冷却名额，否则一次 SMTP 抖动会把用户锁 60 秒。
      */
     @PostMapping("/send-code")
-    public Response<Void> sendCode(@RequestBody SendCodeRequest request) {
-        emailService.sendVerificationCode(request.getEmail());
+    public Response<Void> sendCode(@RequestBody SendCodeRequest request,
+                                   HttpServletRequest httpRequest) {
+        String email = request.getEmail();
+        String clientIp = ipUtils.getClientIp(httpRequest);
+        emailCodeRateLimiter.checkAndRecord(email, clientIp);
+
+        try {
+            emailService.sendVerificationCode(email);
+        } catch (RuntimeException e) {
+            emailCodeRateLimiter.releaseCooldown(email);
+            throw e;
+        }
         return Response.success();
     }
 
