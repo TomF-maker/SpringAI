@@ -2,6 +2,7 @@ package com.example.springai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.springai.common.EmailFormat;
 import com.example.springai.dto.*;
 import com.example.springai.entity.SysCompany;
 import com.example.springai.entity.SysDepartment;
@@ -281,14 +282,21 @@ public class UserServiceImpl implements UserServiceI {
             user.setPhone(phone);
         }
         if (request.getEmail() != null) {
+            // 和注册页同一个校验（common/EmailFormat）。个人中心改邮箱这条也很要命：
+            // 打错一个字母，这个账号就再也收不到验证码、也走不了找回密码了，
+            // 而用户只会觉得"这系统发不出邮件"。
+            String newEmail = request.getEmail().trim();
+            if (!EmailFormat.isValid(newEmail)) {
+                throw new BizException("邮箱格式不正确，请检查后重新填写");
+            }
             // 检查邮箱是否已被其他用户使用
             SysUser existing = userMapper.selectOne(
-                    new QueryWrapper<SysUser>().eq("email", request.getEmail()).ne("id", userId)
+                    new QueryWrapper<SysUser>().eq("email", newEmail).ne("id", userId)
             );
             if (existing != null) {
                 throw new RuntimeException("邮箱已被其他用户使用");
             }
-            user.setEmail(request.getEmail());
+            user.setEmail(newEmail);
         }
         // 公司信息：两个字段必须一起提交 —— 公司是按信用代码 find-or-create 的，
         // 只给名称没法定位，只给代码没法新建。

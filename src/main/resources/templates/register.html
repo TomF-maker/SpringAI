@@ -36,41 +36,49 @@
 <div class="register-card">
     <h3>🛒 注册账号</h3>
     <form id="registerForm">
+        <!-- 必填项标注：这里只有「真实姓名」是选填的，不标出来用户只能靠提交试错 -->
+        <p class="form-text mb-3">带 <span class="text-danger">*</span> 的为必填项</p>
+
         <div class="mb-3">
-            <label class="form-label">用户名</label>
+            <label class="form-label" for="username">用户名 <span class="text-danger">*</span></label>
             <input type="text" id="username" class="form-control" placeholder="请设置用户名" required>
         </div>
 
         <!-- ============ 短信开启：手机号 + 短信验证码 ============ -->
         <th:block th:if="${smsEnabled}">
             <div class="mb-3">
-                <label class="form-label">手机号</label>
+                <label class="form-label" for="phone">手机号 <span class="text-danger">*</span></label>
                 <input type="tel" id="phone" class="form-control" placeholder="请输入手机号"
                        maxlength="11" inputmode="numeric" required>
             </div>
             <div class="mb-3">
-                <label class="form-label">短信验证码</label>
+                <label class="form-label" for="code">短信验证码 <span class="text-danger">*</span></label>
                 <div class="code-row">
                     <input type="text" id="code" class="form-control" placeholder="请输入6位验证码"
                            maxlength="6" inputmode="numeric" required>
-                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary">获取验证码</button>
+                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary" disabled>获取验证码</button>
                 </div>
+                <div class="form-text">先填好下面的图形验证码，这个按钮才会变亮。</div>
             </div>
         </th:block>
 
         <!-- ============ 短信关闭：邮箱 + 邮箱验证码 ============ -->
         <th:block th:unless="${smsEnabled}">
             <div class="mb-3">
-                <label class="form-label">邮箱</label>
+                <label class="form-label" for="email">邮箱 <span class="text-danger">*</span></label>
                 <input type="email" id="email" class="form-control" placeholder="请输入邮箱" required>
+                <!-- 格式提示的落点。用 text-danger 而不是 d-none 起步的 alert，
+                     让"哪里错了"紧贴在出错的那个框下面 -->
+                <div class="form-text text-danger d-none" id="emailError"></div>
             </div>
             <div class="mb-3">
-                <label class="form-label">邮箱验证码</label>
+                <label class="form-label" for="code">邮箱验证码 <span class="text-danger">*</span></label>
                 <div class="code-row">
                     <input type="text" id="code" class="form-control" placeholder="请输入6位验证码"
                            maxlength="6" inputmode="numeric" required>
-                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary">获取验证码</button>
+                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary" disabled>获取验证码</button>
                 </div>
+                <div class="form-text">先填好下面的图形验证码，这个按钮才会变亮。</div>
             </div>
         </th:block>
 
@@ -79,32 +87,33 @@
              放进 th:unless="${smsEnabled}" 里的话，短信开启那天注册页会直接不可用，
              而本地（smsEnabled=false）永远测不出来。 -->
         <div class="mb-3">
-            <label class="form-label" for="captchaCode">图形验证码</label>
+            <label class="form-label" for="captchaCode">图形验证码 <span class="text-danger">*</span></label>
             <div class="code-row">
                 <input type="text" id="captchaCode" class="form-control" placeholder="请输入图中的字符"
                        maxlength="4" autocomplete="off" spellcheck="false"
                        autocapitalize="characters" required>
                 <img id="captchaImg" class="captcha-img" alt="">
             </div>
+            <div class="form-text" id="captchaHint">图中 4 位字符，不区分大小写</div>
         </div>
 
         <div class="mb-3">
-            <label class="form-label">密码</label>
+            <label class="form-label" for="password">密码 <span class="text-danger">*</span></label>
             <input type="password" id="password" class="form-control" placeholder="至少8位" required minlength="8">
         </div>
         <div class="mb-3">
-            <label class="form-label">真实姓名（可选）</label>
+            <label class="form-label" for="realName">真实姓名（可选）</label>
             <input type="text" id="realName" class="form-control" placeholder="请输入真实姓名">
         </div>
 
         <!-- 公司信息：两个都是必填。校验以后端为准，这里只管体验 -->
         <div class="mb-3">
-            <label class="form-label">所属公司名称</label>
+            <label class="form-label" for="companyName">所属公司名称 <span class="text-danger">*</span></label>
             <input type="text" id="companyName" class="form-control"
                    placeholder="请输入公司全称" maxlength="128" required>
         </div>
         <div class="mb-3">
-            <label class="form-label">统一社会信用代码</label>
+            <label class="form-label" for="creditCode">统一社会信用代码 <span class="text-danger">*</span></label>
             <input type="text" id="creditCode" class="form-control"
                    placeholder="营业执照上的 18 位代码" maxlength="18" required
                    autocomplete="off" spellcheck="false"
@@ -114,10 +123,13 @@
             </div>
         </div>
 
-        <!-- 短信关闭时邮箱已经在上面的必填块里了，这里只在开启时作为可选项出现 -->
+        <!-- 短信关闭时邮箱已经在上面的必填块里了，这里只在开启时作为可选项出现。
+             留空不报错，但只要填了就要是合法地址 —— 留个打错的邮箱比留空更糟：
+             本人以为能靠它找回密码，实际那个地址根本收不到信。 -->
         <div class="mb-3" th:if="${smsEnabled}">
-            <label class="form-label">邮箱（可选，用于找回密码）</label>
+            <label class="form-label" for="email">邮箱（可选，用于找回密码）</label>
             <input type="email" id="email" class="form-control" placeholder="请输入邮箱">
+            <div class="form-text text-danger d-none" id="emailError"></div>
         </div>
 
         <div id="registerError" class="alert alert-danger d-none"></div>
@@ -136,25 +148,108 @@
     let countdown = 0;
     const sendBtn = document.getElementById('sendCodeBtn');
     const emailInput = document.getElementById('email');
+    const emailError = document.getElementById('emailError');
 
-    // 图形验证码：两条发码路径（短信 / 邮箱）都要求它
-    const captcha = createCaptcha({
-        imgId: 'captchaImg',
-        inputId: 'captchaCode',
-        onError: function (msg) { alert(msg); }
+    // 和服务端 common/EmailFormat 里那串**一模一样**。两处不一致的话，
+    // 会变成"前端放过去、后端拒绝"（用户看到一个和输入框无关的报错）或者反过来。
+    const EMAIL_RE = new RegExp("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.[a-zA-Z]{2,}$");
+    const EMAIL_MAX_LENGTH = 100;   // 同 EmailFormat.MAX_LENGTH / sys_user.email 列宽
+
+    /**
+     * 返回邮箱的问题描述，没问题返回 null。
+     *
+     * 空值算不算错取决于模式：短信关闭时邮箱是必填的，开启时是选填的。
+     * 但**只要填了就必须合法** —— 留个打错的邮箱比留空更糟，本人以为能靠它找回密码，
+     * 实际那个地址根本收不到信。
+     */
+    function emailProblem() {
+        const value = emailInput.value.trim();
+        if (!value) {
+            return SMS_ENABLED ? null : '请填写邮箱';
+        }
+        if (value.length > EMAIL_MAX_LENGTH) {
+            return '邮箱太长了（最多 ' + EMAIL_MAX_LENGTH + ' 个字符）';
+        }
+        if (!EMAIL_RE.test(value)) {
+            return '邮箱格式不正确，例如 name@company.com';
+        }
+        return null;
+    }
+
+    function showEmailError() {
+        const message = emailProblem();
+        if (emailError) {
+            emailError.textContent = message || '';
+            emailError.classList.toggle('d-none', !message);
+        }
+        return message;
+    }
+
+    // 失焦时报错（不打断输入）。已经在报错的状态下才跟着输入边打边清 ——
+    // 否则刚点进输入框就红一片，很吵。
+    emailInput.addEventListener('blur', showEmailError);
+    emailInput.addEventListener('input', function () {
+        if (emailError && !emailError.classList.contains('d-none')) {
+            showEmailError();
+        }
     });
+
+    // ==================== 图形验证码 ====================
+    // 两条发码路径（短信 / 邮箱）都要求它。
+
+    // 按钮该不该亮：图码填好了、且不在倒计时里。
+    // **唯一的开关点** —— 别在别处直接写 sendBtn.disabled，两处打架的话
+    // 会出现"填好了却还是灰的"这种查不出原因的状态。
+    let captchaReady = false;
+    function refreshSendBtn() {
+        sendBtn.disabled = countdown > 0 || !captchaReady;
+    }
+
+    // captcha.js 没加载出来时的退路。
+    //
+    // 不挡的话，这一行 `createCaptcha(...)` 会直接抛异常，**整个内联脚本都死掉** ——
+    // 连表单提交、倒计时都一起没了，而页面上没有任何提示。
+    // 退化成"控件不工作、但按钮还能点"，让服务端去拒（它会回一句清楚的
+    // "图形验证码错误或已过期"），比一个安静死掉的页面强。
+    const NO_CAPTCHA_SCRIPT = {
+        refresh: function () { return Promise.resolve(false); },
+        payload: function () { return {}; },
+        reset: function () {}
+    };
+    const HAS_CAPTCHA_SCRIPT = typeof createCaptcha === 'function';
+    if (!HAS_CAPTCHA_SCRIPT) {
+        console.error('[register] captcha.js 未加载，图形验证码不可用，本次交回服务端校验');
+    }
+
+    const captcha = HAS_CAPTCHA_SCRIPT
+        ? createCaptcha({
+            imgId: 'captchaImg',
+            inputId: 'captchaCode',
+            hintId: 'captchaHint',
+            onError: function (msg) { alert(msg); },
+            onChange: function (ready) { captchaReady = ready; refreshSendBtn(); }
+        })
+        : NO_CAPTCHA_SCRIPT;
+
+    // 脚本没加载出来就别让按钮一直是灰的（那样等于整个注册页不可用，还没有任何报错）
+    captchaReady = !HAS_CAPTCHA_SCRIPT;
+    refreshSendBtn();
+
     captcha.refresh();
 
     function startCountdown() {
         countdown = 60;
         sendBtn.disabled = true;
+        sendBtn.textContent = countdown + 's';   // 立刻变，别等第一秒过去还写着"获取验证码"
         const interval = setInterval(() => {
             countdown--;
             sendBtn.textContent = countdown + 's';
             if (countdown <= 0) {
                 clearInterval(interval);
                 sendBtn.textContent = '获取验证码';
-                sendBtn.disabled = false;
+                // 倒计时结束不等于能点：图码那栏可能还是空的（发送成功后刚被清掉），
+                // 所以这里交给 refreshSendBtn 判，不要直接 disabled = false
+                refreshSendBtn();
             }
         }, 1000);
     }
@@ -172,19 +267,19 @@
             url = '/api/auth/send-sms-code';
             body = { phone: phone, scene: 'register' };
         } else {
-            const email = emailInput.value.trim();
-            if (!email) {
-                alert('请先填写邮箱');
+            // 用内联提示而不是 alert：错误要贴在出错的那个框下面
+            if (showEmailError()) {
+                emailInput.focus();
                 return;
             }
             url = '/api/auth/send-code';
-            body = { email: email, type: 'register' };
+            body = { email: emailInput.value.trim(), type: 'register' };
         }
 
         // 图形验证码是**必填**的。还没签发成功就直接本地拦住 ——
         // 发个 null 上去只会换来一句看不懂的"图形验证码错误或已过期"。
         const cp = captcha.payload();
-        if (!cp) {
+        if (!cp || !cp.captchaId) {
             alert('图形验证码未加载，请点击图片刷新后再试');
             return;
         }
@@ -210,18 +305,32 @@
                 alert(data.errMessage || '发送失败');
                 // 图形验证码是一次性的：被限流拒绝时它也已经消耗掉了，
                 // 不换一张的话用户第二次点必然报"图形验证码错误"。
+                // refresh 会清空输入框 → 按钮重新变灰，用户得再认一张 —— 这是对的。
                 await captcha.refresh();
-                sendBtn.disabled = false;
             }
         } catch (err) {
             alert('网络错误');
             await captcha.refresh();
-            sendBtn.disabled = false;
         }
+        // 统一收口：这里不写 sendBtn.disabled = false，交给 refreshSendBtn 判
+        // （图码那栏是空的就该继续灰着）
+        refreshSendBtn();
     });
 
     document.getElementById('registerForm').addEventListener('submit', async function (e) {
         e.preventDefault();
+
+        const errorDiv = document.getElementById('registerError');
+        errorDiv.classList.add('d-none');
+
+        // 邮箱格式先拦一道，提示贴在邮箱框下面。
+        // 浏览器对 type="email" 本来也有原生校验，但原生提示是浏览器样式的一闪而过的小气泡，
+        // 而且短信开启时邮箱是选填的、留空会被放过 —— 这里给的是自己的、留在页面上的提示。
+        // （服务端 register 有同样的校验，这里只是体验。）
+        if (showEmailError()) {
+            emailInput.focus();
+            return;
+        }
 
         const data = {
             username: document.getElementById('username').value,
@@ -235,13 +344,12 @@
         };
         if (SMS_ENABLED) {
             data.phone = document.getElementById('phone').value;
-            data.email = emailInput.value || null;
+            data.email = emailInput.value.trim() || null;
         } else {
-            data.email = emailInput.value;
+            // trim：和 /send-code 发码时用的必须完全一致，否则验证码存在
+            // verify:code:<带空格的> 而注册查的是 <不带空格的>，永远验不过
+            data.email = emailInput.value.trim();
         }
-
-        const errorDiv = document.getElementById('registerError');
-        errorDiv.classList.add('d-none');
 
         try {
             const response = await fetch('/api/auth/register', {

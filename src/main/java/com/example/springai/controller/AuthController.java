@@ -1,6 +1,7 @@
 package com.example.springai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.springai.common.EmailFormat;
 import com.example.springai.common.ErrorCode;
 import com.example.springai.common.Response;
 import com.example.springai.dto.CaptchaResponse;
@@ -316,6 +317,12 @@ public class AuthController {
         if (email == null || email.isEmpty()) {
             throw new BizException(ErrorCode.BAD_REQUEST, "请填写邮箱");
         }
+        // 格式不对就在这里挡掉。否则它会一路走到 QQ SMTP，jakarta.mail 解析收件人时抛
+        // AddressException，用户看到的是 HTTP 500 —— 一个"你地址打错了"的事故
+        // 被包装成了"服务器内部错误"，还白烧掉一次图形验证码。
+        if (!EmailFormat.isValid(email)) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "邮箱格式不正确，请检查后重新填写");
+        }
 
         // 图形验证码：**唯一的第一道门**。它之后才允许出现有副作用的检查 ——
         // 顺序反过来（先限流再验图码）的话，一个不解图码的攻击者只要每 59 秒打一次
@@ -460,8 +467,17 @@ public class AuthController {
 
         // 1. 手机号：短信开启时必填并使用短信验证码；关闭时可选，改用邮箱验证码
         String phone = PhoneUtils.normalize(request.getPhone());
+        // 这里必须 trim 出和 /send-code 完全一样的字符串：验证码存在 verify:code:<email>，
+        // 两个入口对同一个地址少一个空格就是两个不同的键 —— 发出去的码永远验不过，
+        // 而报错是"验证码错误"，和空格对不上号。
         String email = (request.getEmail() == null || request.getEmail().isBlank())
-                ? null : request.getEmail();
+                ? null : request.getEmail().trim();
+
+        // 纯输入校验，必须排在消耗验证码之前（verify 是一次性的，先验码再发现格式不对，
+        // 那个码就白烧了，用户得重新收一次邮件）
+        if (email != null && !EmailFormat.isValid(email)) {
+            return Response.fail(ErrorCode.BAD_REQUEST, "邮箱格式不正确，请检查后重新填写");
+        }
 
         if (smsEnabled) {
             if (phone == null) {
