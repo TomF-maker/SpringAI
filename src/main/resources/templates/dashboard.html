@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
@@ -7,32 +7,100 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=3">
+    <link rel="stylesheet" href="/css/app.css?v=5">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         .stat-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            background: var(--pa-surface, #fff);
+            border-radius: var(--pa-radius-lg);
+            padding: 24px 20px;
+            box-shadow: var(--pa-shadow-sm);
+            border: 1px solid var(--pa-border, #E5E7EB);
             text-align: center;
-            transition: transform 0.2s;
+            transition: transform 0.22s cubic-bezier(0.2,0.7,0.2,1),
+                        box-shadow 0.22s cubic-bezier(0.2,0.7,0.2,1),
+                        border-color 0.22s ease;
+            position: relative;
+            overflow: hidden;
         }
-        .stat-card:hover { transform: translateY(-4px); }
-        .stat-card .number { font-size: 32px; font-weight: 700; color: #1a73e8; }
-        .stat-card .label { font-size: 14px; color: #64748b; margin-top: 4px; }
-        .stat-card .icon { font-size: 28px; color: #1a73e8; opacity: 0.6; }
+        /* Stripe 风：左侧紫蓝竖条强调，替代顶部琥珀渐变条 */
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 3px;
+            background: linear-gradient(180deg, #635BFF 0%, #4F47D6 100%);
+            opacity: 0;
+            transition: opacity 0.22s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--pa-shadow);
+            border-color: var(--pa-primary-tint, #E6E1FF);
+        }
+        .stat-card:hover::before { opacity: 1; }
+        .stat-card .number {
+            font-size: 30px;
+            font-weight: 700;
+            color: var(--pa-ink, #0A2540);
+            letter-spacing: -0.4px;
+            font-variant-numeric: tabular-nums;
+            line-height: 1.2;
+        }
+        .stat-card .label {
+            font-size: 12px;
+            color: var(--pa-text-muted, #8898AA);
+            margin-top: 6px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+        .stat-card .icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: var(--pa-primary-soft, #F0EFFF);
+            color: var(--pa-primary, #635BFF);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+        .stat-card .icon i { font-size: 18px; }
         .chart-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            background: var(--pa-surface, #fff);
+            border-radius: var(--pa-radius-lg);
+            padding: 24px;
+            box-shadow: var(--pa-shadow-sm);
+            border: 1px solid var(--pa-border, #E5E7EB);
             margin-top: 20px;
         }
-        .chart-card .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+        .chart-card .chart-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--pa-ink, #0A2540);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: -0.1px;
+        }
+        .chart-card .chart-title::before {
+            content: '';
+            width: 3px;
+            height: 16px;
+            background: linear-gradient(180deg, #635BFF 0%, #4F47D6 100%);
+            border-radius: 2px;
+        }
         .chart-container { height: 300px; }
         @media (max-width: 991.98px) {
             .chart-container { height: 240px; }
+            .stat-card { padding: 20px 16px; }
+            .stat-card .number { font-size: 26px; }
+        }
+        @media (max-width: 575.98px) {
+            .stat-card .number { font-size: 22px; }
+            .stat-card .icon { width: 36px; height: 36px; font-size: 16px; }
         }
     </style>
 </head>
@@ -295,27 +363,27 @@
                 type: 'category',
                 data: dates,
                 boundaryGap: false,
-                axisLine: { lineStyle: { color: '#e2e8f0' } }
+                axisLine: { lineStyle: { color: '#E5E7EB' } }
             },
             yAxis: {
                 type: 'value',
                 minInterval: 1,
-                splitLine: { lineStyle: { color: '#f1f3f5' } }
+                splitLine: { lineStyle: { color: '#EDF0F4' } }
             },
             series: [{
                 data: counts,
                 type: 'line',
                 smooth: true,
-                lineStyle: { color: '#1a73e8', width: 3 },
+                lineStyle: { color: '#635BFF', width: 3 },
                 areaStyle: {
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: 'rgba(26, 115, 232, 0.3)' },
-                        { offset: 1, color: 'rgba(26, 115, 232, 0.02)' }
+                        { offset: 0, color: 'rgba(99, 91, 255, 0.3)' },
+                        { offset: 1, color: 'rgba(99, 91, 255, 0.02)' }
                     ])
                 },
                 symbol: 'circle',
                 symbolSize: 8,
-                itemStyle: { color: '#1a73e8' }
+                itemStyle: { color: '#635BFF' }
             }]
         };
         chart.setOption(option);
@@ -368,7 +436,7 @@
                     label: { show: true, fontSize: 14, fontWeight: 'bold' }
                 },
                 data: data.length ? data : [{ name: '暂无数据', value: 1 }],
-                color: ['#1a73e8', '#34a853', '#fbbc04', '#ea4335', '#9c27b0']
+                color: ['#635BFF', '#5A52E0', '#1A8244', '#B57400', '#A855F7']
             }]
         };
         chart.setOption(option);
@@ -432,27 +500,27 @@
                 type: 'category',
                 data: daily.map(i => i.date),
                 boundaryGap: false,
-                axisLine: { lineStyle: { color: '#e2e8f0' } }
+                axisLine: { lineStyle: { color: '#E5E7EB' } }
             },
-            yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#f1f3f5' } } },
+            yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#EDF0F4' } } },
             series: [
                 {
                     name: '提问数', type: 'line', smooth: true,
                     data: daily.map(i => i.count),
-                    lineStyle: { color: '#1a73e8', width: 3 },
-                    itemStyle: { color: '#1a73e8' },
+                    lineStyle: { color: '#635BFF', width: 3 },
+                    itemStyle: { color: '#635BFF' },
                     areaStyle: {
                         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: 'rgba(26, 115, 232, 0.3)' },
-                            { offset: 1, color: 'rgba(26, 115, 232, 0.02)' }
+                            { offset: 0, color: 'rgba(99, 91, 255, 0.28)' },
+                            { offset: 1, color: 'rgba(99, 91, 255, 0.02)' }
                         ])
                     }
                 },
                 {
                     name: '活跃用户', type: 'line', smooth: true,
                     data: daily.map(i => i.activeUsers),
-                    lineStyle: { color: '#34a853', width: 2 },
-                    itemStyle: { color: '#34a853' }
+                    lineStyle: { color: '#1A8244', width: 2 },
+                    itemStyle: { color: '#1A8244' }
                 }
             ]
         });
@@ -464,10 +532,10 @@
         if (!chart) return;
         const attempts = (data.docAnswerCount || 0) + (data.kbGapCount || 0);
         const pieData = attempts === 0
-            ? [{ name: '暂无检索数据', value: 1, itemStyle: { color: '#e2e8f0' } }]
+            ? [{ name: '暂无检索数据', value: 1, itemStyle: { color: '#E5E7EB' } }]
             : [
-                { name: '检索到文档', value: data.docAnswerCount, itemStyle: { color: '#34a853' } },
-                { name: '未检索到（缺口）', value: data.kbGapCount, itemStyle: { color: '#ea4335' } }
+                { name: '检索到文档', value: data.docAnswerCount, itemStyle: { color: '#1A8244' } },
+                { name: '未检索到（缺口）', value: data.kbGapCount, itemStyle: { color: '#D6483D' } }
             ];
 
         chart.setOption({
@@ -483,7 +551,7 @@
                     formatter: attempts === 0 ? '暂无数据' : `命中率\n${data.hitRate}%`,
                     fontSize: 16,
                     fontWeight: 'bold',
-                    color: '#1e293b'
+                    color: '#0A2540'
                 },
                 itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
                 data: pieData
@@ -504,20 +572,20 @@
         chart.setOption({
             tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
             grid: { left: '3%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
-            xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#f1f3f5' } } },
+            xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#EDF0F4' } } },
             yAxis: {
                 type: 'category',
                 data: ordered.map(h => h.question.length > 18
                     ? h.question.substring(0, 18) + '…' : h.question),
                 axisLabel: { fontSize: 12 },
-                axisLine: { lineStyle: { color: '#e2e8f0' } }
+                axisLine: { lineStyle: { color: '#E5E7EB' } }
             },
             series: [{
                 type: 'bar',
                 data: ordered.map(h => h.count),
                 barWidth: '55%',
                 itemStyle: {
-                    color: '#1a73e8',
+                    color: '#635BFF',
                     borderRadius: [0, 4, 4, 0]
                 },
                 label: { show: true, position: 'right', fontSize: 12 }
@@ -530,9 +598,9 @@
         const chart = useChart('answerTypeChart');
         if (!chart) return;
         const items = [
-            { name: '本地知识库命中', value: data.localHitCount || 0, color: '#9c27b0' },
-            { name: '文档问答', value: data.docAnswerCount || 0, color: '#1a73e8' },
-            { name: '未检索到（缺口）', value: data.kbGapCount || 0, color: '#ea4335' },
+            { name: '本地知识库命中', value: data.localHitCount || 0, color: '#A855F7' },
+            { name: '文档问答', value: data.docAnswerCount || 0, color: '#635BFF' },
+            { name: '未检索到（缺口）', value: data.kbGapCount || 0, color: '#D6483D' },
             { name: '工具调用', value: data.toolCallCount || 0, color: '#fbbc04' },
             { name: '处理异常', value: data.errorCount || 0, color: '#64748b' }
         ].filter(i => i.value > 0);
@@ -549,7 +617,7 @@
                 label: { fontSize: 12, formatter: '{b}\n{c}' },
                 data: items.length ? items.map(i => ({
                     name: i.name, value: i.value, itemStyle: { color: i.color }
-                })) : [{ name: '暂无数据', value: 1, itemStyle: { color: '#e2e8f0' } }]
+                })) : [{ name: '暂无数据', value: 1, itemStyle: { color: '#E5E7EB' } }]
             }]
         });
         chart.resize();
@@ -614,18 +682,18 @@
         chart.setOption({
             tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
             grid: { left: '3%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
-            xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#f1f3f5' } } },
+            xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#EDF0F4' } } },
             yAxis: {
                 type: 'category',
                 data: ordered.map(c => c.name.length > 16 ? c.name.substring(0, 16) + '…' : c.name),
                 axisLabel: { fontSize: 12 },
-                axisLine: { lineStyle: { color: '#e2e8f0' } }
+                axisLine: { lineStyle: { color: '#E5E7EB' } }
             },
             series: [{
                 type: 'bar',
                 data: ordered.map(c => c.count),
                 barWidth: '55%',
-                itemStyle: { color: '#34a853', borderRadius: [0, 4, 4, 0] },
+                itemStyle: { color: '#1A8244', borderRadius: [0, 4, 4, 0] },
                 label: { show: true, position: 'right', fontSize: 12 }
             }]
         });

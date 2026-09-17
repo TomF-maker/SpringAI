@@ -17,6 +17,8 @@ import com.example.springai.service.RagConcurrencyLimiterI;
 import com.example.springai.service.RagServiceI;
 import com.example.springai.service.UserServiceI;
 import com.example.springai.utils.JwtUtils;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,6 +69,9 @@ public class RagController {
     /** 并发闸门。两条提问路径都要过它 —— 服务器只有 2 核，不设限会同时把大家拖慢。 */
     @Autowired
     private RagConcurrencyLimiterI concurrencyLimiter;
+
+    /** 序列化流式 meta 帧（含 sources 来源标注）。new 一个够用，无需走容器。 */
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
      * 判定当前请求是不是未登录调用。
@@ -160,6 +165,8 @@ public class RagController {
         final String clientIp = ipUtils.getClientIp(request);
 
         final Long currentUserId = currentUser == null ? null : currentUser.getId();
+        // 客户公司归属，用于会话隔离标记（P0：会话列表仍按 userId 隔离，clientId 为 P1 铺路）
+        final Long currentCompanyId = currentUser == null ? null : currentUser.getCompanyId();
 
         // 并发名额。和流式路径同一个闸门、同一套顺序（**先名额、后配额**）——
         // 反过来的话服务器忙时被拒的请求会白扣一次配额。
@@ -194,7 +201,7 @@ public class RagController {
             //
             // 现在和流式路径共用同一个 resolveConversationId，行为对齐。
             if (!anonymous) {
-                finalConversationId = resolveConversationId(conversationId, question, currentUserId);
+                finalConversationId = resolveConversationId(conversationId, question, currentUserId, currentCompanyId);
             }
 
             RagServiceI.Answer result;
@@ -205,10 +212,10 @@ public class RagController {
             }
 
             // 把回答写进会话。流式路径是在 doOnComplete 里做的（因为答案要边流边攒），
-            // 这里答案已经完整拿到，同步写即可。
+            // 这里答案已经完整拿到，同步写即可。sources 一并持久化，历史记录重进仍能看到来源。
             if (finalConversationId != null) {
                 conversationService.addMessage(finalConversationId, currentUserId,
-                        "assistant", result.getAnswer());
+                        "assistant", result.getAnswer(), result.getSources());
             }
 
             Map<String, Object> data = new HashMap<>();
@@ -219,6 +226,8 @@ public class RagController {
             // **前端靠它续接下一问**。不返回的话，走这条路的提问永远学不到会话 id，
             // 下一次提问又会另起一个会话 —— 历史记录里就散成一堆。
             data.put("conversationId", finalConversationId);
+            // 答案来源标注：null/空时前端不渲染「来源」区。走兜底/工具调用等无检索路径时为 null。
+            data.put("sources", result.getSources());
             return Response.success(data);
         } catch (BizException e) {
             // 会话不存在或不属于该用户 —— 单独接住，别让它掉进下面的通用分支
@@ -300,6 +309,8 @@ public class RagController {
         // 漏一处就少一个名额，而且不报错 —— 只是闸门越来越早地喊"人数较多"，
         // 要等到有人抱怨"明明没人用却总说忙"才会被发现。所以统一收口在这里。
         final Long currentUserId = currentUser == null ? null : currentUser.getId();
+        // 客户公司归属，用于会话隔离标记（P0：会话列表仍按 userId 隔离，clientId 为 P1 铺路）
+        final Long currentCompanyId = currentUser == null ? null : currentUser.getCompanyId();
         final String finalConversationId;
         final RagServiceI.AnswerStream answerStream;
         try {
@@ -312,7 +323,7 @@ public class RagController {
             // 匿名用户不做会话持久化（MongoDB 里不留无主会话），所以直接置空
             finalConversationId = anonymous
                     ? null
-                    : resolveConversationId(conversationId, question, currentUserId);
+                    : resolveConversationId(conversationId, question, currentUserId, currentCompanyId);
 
             // 先把流和埋点 id 一起拿到，**再**拼 meta 帧 ——
             // 顺序反过来 meta 帧里就拿不到 questionLogId 了（它是在 service 里落库产生的）。
@@ -335,14 +346,26 @@ public class RagController {
         StringBuilder aiAnswer = new StringBuilder();
 
         // 5. 构建流式响应
-        //    先发送一个元数据消息（包含 conversationId、是否匿名、埋点 id），再发送回答流。
-        //    同样只给"内容"，SSE 的 data: 前缀与空行由 Spring 负责。
-        Flux<String> metaDataFlux = Flux.just(
-                "{\"type\":\"meta\",\"conversationId\":"
-                        + (finalConversationId == null ? "null" : "\"" + finalConversationId + "\"")
-                        + ",\"anonymous\":" + anonymous
-                        + ",\"questionLogId\":" + answerStream.getQuestionLogId() + "}"
-        );
+        //    meta 帧带上 sources（答案来源标注），前端在回答流之前就拿到来源信息。
+        //    用 ObjectMapper 序列化，避免手动拼 JSON 时标题/片段里的引号、换行转义出错。
+        //    序列化失败时退回不含 sources 的旧格式 —— meta 帧断了整条流就废了，不能冒险。
+        String metaJson;
+        try {
+            Map<String, Object> meta = new HashMap<>();
+            meta.put("type", "meta");
+            meta.put("conversationId", finalConversationId);
+            meta.put("anonymous", anonymous);
+            meta.put("questionLogId", answerStream.getQuestionLogId());
+            meta.put("sources", answerStream.getSources());
+            metaJson = objectMapper.writeValueAsString(meta);
+        } catch (JsonProcessingException e) {
+            log.warn("meta 帧序列化失败，退回不含 sources 的版本: {}", e.getMessage());
+            metaJson = "{\"type\":\"meta\",\"conversationId\":"
+                    + (finalConversationId == null ? "null" : "\"" + finalConversationId + "\"")
+                    + ",\"anonymous\":" + anonymous
+                    + ",\"questionLogId\":" + answerStream.getQuestionLogId() + "}";
+        }
+        Flux<String> metaDataFlux = Flux.just(metaJson);
 
         final Long questionLogId = answerStream.getQuestionLogId();
 
@@ -350,8 +373,9 @@ public class RagController {
                 .doOnNext(chunk -> aiAnswer.append(chunk))
                 .doOnComplete(() -> {
                     if (finalConversationId != null) {
+                        // sources 随消息持久化，历史记录重进仍能看到「来源」展开区
                         conversationService.addMessage(finalConversationId, currentUserId,
-                                "assistant", aiAnswer.toString());
+                                "assistant", aiAnswer.toString(), answerStream.getSources());
                         log.info("✅ AI回答已保存，会话ID: {}", finalConversationId);
                     }
                 })
@@ -381,13 +405,13 @@ public class RagController {
      * <p>传入已有 conversationId 时，归属校验在 service 层做 —— 不属于该用户会抛
      * {@link BizException}，由调用方转成 SSE 错误帧。
      */
-    private String resolveConversationId(String conversationId, String question, Long userId) {
+    private String resolveConversationId(String conversationId, String question, Long userId, Long clientId) {
         if (conversationId != null && !conversationId.isEmpty()) {
             conversationService.addMessage(conversationId, userId, "user", question);
             log.info("🔁 使用已有会话，ID: {}", conversationId);
             return conversationId;
         }
-        Conversation conv = conversationService.createConversation(userId, question);
+        Conversation conv = conversationService.createConversation(userId, question, clientId);
         conversationService.addMessage(conv.getId(), userId, "user", question);
         log.info("✅ 创建新会话，ID: {}", conv.getId());
         return conv.getId();

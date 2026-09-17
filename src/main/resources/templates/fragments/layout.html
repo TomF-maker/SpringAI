@@ -31,9 +31,14 @@
     </script>
 
     <div class="sidebar-brand">
-        <i class="bi bi-cart3"></i> <span>采购助手</span>
+        <span class="brand-mark"><i class="bi bi-cart3"></i></span>
+        <span class="brand-text">
+            <span class="brand-name">采购助手</span>
+            <span class="brand-sub">Procurement AI</span>
+        </span>
     </div>
     <ul class="nav flex-column">
+        <li class="nav-section-label" aria-hidden="true">业务</li>
 
         <!-- ---------- 业务功能 ---------- -->
         <!-- 智能问答对游客开放，所以不带 data-auth-only -->
@@ -48,6 +53,7 @@
             </a>
         </li>
         <!-- ---------- 管理功能（仅 admin） ---------- -->
+        <li class="nav-section-label" data-admin-only aria-hidden="true">管理</li>
         <li class="nav-divider" data-admin-only role="separator"></li>
         <!-- 文档管理归到管理功能：上传/删除会立刻影响所有人的检索结果，
              让普通用户进来改知识库风险太大。普通用户只有「智能问答 + 历史记录」。 -->
@@ -85,6 +91,7 @@
 
         <!-- ---------- 账户 ---------- -->
         <!-- 分割线也要跟着隐藏，否则个人中心藏起来后会剩一条孤零零的线 -->
+        <li class="nav-section-label" data-auth-only aria-hidden="true">账户</li>
         <li class="nav-divider" data-auth-only role="separator"></li>
         <li class="nav-item" data-auth-only>
             <a class="nav-link" th:classappend="${active == 'profile'} ? 'active' : ''" href="/profile">

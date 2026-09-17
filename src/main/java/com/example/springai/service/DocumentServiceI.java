@@ -30,7 +30,13 @@ public interface DocumentServiceI {
 
     KbDocument uploadDocument(MultipartFile file, DocumentUploadDTO metadata, Long currentUserId) throws IOException;
     KbDocument uploadFromUrl(String url, DocumentUploadDTO metadata, Long currentUserId) throws IOException;
-    Page<DocumentListDTO> listDocuments(int page, int size, String keyword, Long departmentId, Long currentUserId);
+    /**
+     * 文档列表（带权限 + 客户隔离）。
+     *
+     * @param clientId 管理员可按客户筛选；非 null 时只返回该客户的专属 + 通用文档。
+     *                 仅管理员有效，普通用户的 client 隔离由其 companyId 决定。
+     */
+    Page<DocumentListDTO> listDocuments(int page, int size, String keyword, Long departmentId, Long clientId, Long currentUserId);
     void deleteDocument(Long docId, Long currentUserId);
     org.springframework.core.io.Resource downloadDocument(Long docId, Long currentUserId);
     KbDocument getDocumentById(Long id);

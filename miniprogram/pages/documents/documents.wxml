@@ -1,0 +1,51 @@
+<!-- pages/documents/documents.wxml - 文档管理（管理员） -->
+<view class="page">
+  <view class="toolbar">
+    <view class="title-block">
+      <view class="t-title">文档列表</view>
+      <view class="t-sub">共 {{total}} 条</view>
+    </view>
+    <button class="upload-btn" bindtap="onPickFile">
+      <text>+ 上传文档</text>
+    </button>
+  </view>
+
+  <view wx:if="{{!loading && list.length === 0}}" class="pa-empty">
+    <view class="pa-empty-icon">📄</view>
+    还没有文档
+  </view>
+  <view wx:if="{{loading && list.length === 0}}" class="pa-loading">加载中…</view>
+
+  <view class="doc-list">
+    <view wx:for="{{list}}" wx:key="id" class="doc-item">
+      <view class="doc-main" bindtap="onOpenDoc" data-id="{{item.id}}">
+        <view class="doc-icon">{{item.icon}}</view>
+        <view class="doc-info">
+          <view class="doc-title">{{item.title}}</view>
+          <view class="doc-meta">
+            <text class="pa-badge {{item.statusBadge}}">{{item.statusText}}</text>
+            <text>{{item.sizeText}}</text>
+            <text>· {{item.timeText}}</text>
+          </view>
+        </view>
+      </view>
+      <view class="doc-actions">
+        <view class="act-btn" catchtap="onDownload" data-id="{{item.id}}">下载</view>
+        <view class="act-btn danger" catchtap="onDelete" data-id="{{item.id}}" data-title="{{item.title}}">删除</view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{!loading && list.length > 0}}" class="pa-loading">
+    {{hasMore ? '上拉加载更多' : '没有更多了'}}
+  </view>
+</view>
+
+<!-- 上传中遮罩 -->
+<view wx:if="{{uploading}}" class="upload-mask">
+  <view class="upload-card">
+    <view class="upload-title">{{uploading.name}}</view>
+    <view class="upload-progress">{{uploading.progress}}%</view>
+    <view class="upload-hint">正在向量化，大文件可能需要几分钟…</view>
+  </view>
+</view>

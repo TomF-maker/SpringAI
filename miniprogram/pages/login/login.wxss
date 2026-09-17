@@ -1,0 +1,84 @@
+/* pages/login/login.wxss - 与网页端登录卡片呼应的样式 */
+
+.login-page {
+  min-height: 100vh;
+  padding: 80rpx 56rpx 40rpx;
+  box-sizing: border-box;
+  background:
+    radial-gradient(110% 70% at 100% 0%, rgba(232, 161, 58, 0.08) 0%, transparent 50%),
+    radial-gradient(90% 60% at 0% 100%, rgba(59, 79, 135, 0.10) 0%, transparent 55%),
+    #f4f5f7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.brand-mark {
+  width: 110rpx;
+  height: 110rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #2b3a67 0%, #3b4f87 60%, #4a5fa5 100%);
+  box-shadow: 0 12rpx 32rpx rgba(43, 58, 103, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 28rpx;
+}
+.brand-emoji { font-size: 52rpx; line-height: 1; }
+
+.title {
+  font-size: 22px;
+  font-weight: 600;
+  color: #1f2430;
+  letter-spacing: 1rpx;
+  margin-bottom: 8rpx;
+}
+.subtitle {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 56rpx;
+}
+
+.form-card {
+  width: 100%;
+  background: #fff;
+  border-radius: 28rpx;
+  padding: 40rpx 32rpx 32rpx;
+  box-shadow: 0 16rpx 48rpx rgba(31, 36, 48, 0.10);
+  border: 1rpx solid rgba(31, 36, 48, 0.04);
+}
+
+.field { margin-bottom: 28rpx; }
+
+.error-box {
+  background: #fdeaea;
+  color: #c33d3d;
+  border: 1rpx solid #f5c2c7;
+  padding: 18rpx 22rpx;
+  border-radius: 12rpx;
+  font-size: 13px;
+  margin-bottom: 24rpx;
+  line-height: 1.5;
+}
+
+.submit-btn {
+  width: 100% !important;
+  margin-top: 8rpx;
+  background: #3b4f87 !important;
+  color: #fff !important;
+}
+.submit-btn[disabled] { background: #b8c0d0 !important; color: #fff !important; }
+
+.footer-tip {
+  text-align: center;
+  font-size: 12px;
+  color: #9aa0ab;
+  margin-top: 36rpx;
+}
+.footer-link {
+  text-align: center;
+  font-size: 13px;
+  color: #3b4f87;
+  margin-top: 8rpx;
+  padding: 12rpx 0;
+}

@@ -1,0 +1,109 @@
+/* app.wxss - 采购智能助手小程序全局样式
+   设计语言与网页端保持一致：夜航蓝主色 + 晨曦琥珀点缀 + 暖灰中性色。
+   尺寸单位用 rpx（750 = 屏宽），字号用 px，便于跨屏一致。 */
+
+page {
+  background: #f4f5f7;
+  color: #1f2430;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+               'Microsoft YaHei', 'Source Han Sans SC', 'Noto Sans CJK SC', sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* —— 通用色板（仅作注释参考，wxml 里仍写 hex）——
+   主色 #2b3a67 / 主色亮 #3b4f87 / 主色淡 #eef1fb
+   点缀 #e8a13a / 点缀淡 #fdf3e0
+   成功 #2f8a4d / 警告 #b8791a / 危险 #c33d3d
+   文字 #1f2430 / 次文字 #6b7280 / 弱文字 #9aa0ab
+   背景 #f4f5f7 / 卡片 #ffffff / 浅卡片 #fafbfd
+   边框 #e6e8ee / 强边框 #d4d8e0                           */
+
+/* —— 容器 —— */
+.pa-page {
+  min-height: 100vh;
+  padding: 24rpx 28rpx;
+  box-sizing: border-box;
+}
+
+.pa-card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  box-shadow: 0 2rpx 12rpx rgba(31, 36, 48, 0.05);
+  border: 1rpx solid #eef0f4;
+}
+
+/* —— 文本与标题 —— */
+.pa-title { font-size: 17px; font-weight: 600; color: #1f2430; }
+.pa-subtitle { font-size: 12px; color: #9aa0ab; }
+.pa-muted { color: #6b7280; }
+.pa-danger { color: #c33d3d; }
+.pa-primary { color: #3b4f87; }
+
+/* —— 按钮（与 bootstrap 主色对齐）—— */
+.pa-btn {
+  background: #3b4f87;
+  color: #fff;
+  border: none;
+  border-radius: 16rpx;
+  padding: 22rpx 32rpx;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 1rpx;
+  transition: background 0.14s ease;
+}
+.pa-btn[disabled] { background: #b8c0d0; color: #fff; }
+.pa-btn::after { border: none; }
+.pa-btn-outline {
+  background: #fff;
+  color: #3b4f87;
+  border: 1rpx solid #3b4f87;
+}
+.pa-btn-outline::after { border: none; }
+
+/* —— 表单 —— */
+.pa-input {
+  background: #fafbfd;
+  border: 1rpx solid #d4d8e0;
+  border-radius: 14rpx;
+  padding: 22rpx 26rpx;
+  font-size: 15px;
+  color: #1f2430;
+  transition: border-color 0.14s ease;
+}
+.pa-input:focus { border-color: #3b4f87; }
+
+.pa-label { font-size: 13px; color: #1f2430; font-weight: 500; margin-bottom: 12rpx; display: block; }
+
+/* —— 标签 / 徽章 —— */
+.pa-badge {
+  display: inline-block;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 11px;
+  background: #eef1fb;
+  color: #3b4f87;
+}
+.pa-badge-warning { background: #fdf3e0; color: #b8791a; }
+.pa-badge-danger { background: #fdeaea; color: #c33d3d; }
+.pa-badge-success { background: #e6f4eb; color: #2f8a4d; }
+
+/* —— 空状态 —— */
+.pa-empty {
+  text-align: center;
+  padding: 80rpx 40rpx;
+  color: #9aa0ab;
+  font-size: 13px;
+}
+.pa-empty-icon { font-size: 48px; color: #c5cad3; display: block; margin-bottom: 20rpx; }
+
+/* —— 加载态 —— */
+.pa-loading {
+  text-align: center;
+  color: #9aa0ab;
+  font-size: 12px;
+  padding: 24rpx 0;
+}

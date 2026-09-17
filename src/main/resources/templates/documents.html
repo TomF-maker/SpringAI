@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=3">
+    <link rel="stylesheet" href="/css/app.css?v=5">
     <style>
         .content-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
@@ -49,6 +49,9 @@
                 <select id="deptFilter" class="form-select">
                     <option value="">全部部门</option>
                 </select>
+                <select id="clientFilter" class="form-select">
+                    <option value="">全部客户</option>
+                </select>
                 <button class="btn btn-primary" id="searchBtn"><i class="bi bi-search"></i> 搜索</button>
                 <button class="btn btn-outline-secondary" id="resetBtn"><i class="bi bi-arrow-counterclockwise"></i> 重置</button>
                 <div class="upload-btn-group ms-auto">
@@ -67,6 +70,7 @@
                         <th>文件名</th>
                         <th>上传人</th>
                         <th>部门</th>
+                        <th>客户</th>
                         <th style="width:120px;">可见性</th>
                         <th style="width:80px;">状态</th>
                         <th style="width:60px;">片段</th>
@@ -74,7 +78,7 @@
                     </tr>
                     </thead>
                     <tbody id="docTableBody">
-                    <tr><td colspan="9" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
+                    <tr><td colspan="10" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -111,6 +115,15 @@
                             <select class="form-select" id="fileDepartment" required></select>
                         </div>
                         <div class="col-md-6 mb-3">
+                            <label class="form-label">所属客户</label>
+                            <select class="form-select" id="fileClient">
+                                <option value="">通用方法论（所有客户可见）</option>
+                            </select>
+                            <small class="text-muted">不选则视为通用方法论，所有客户都能检索到</small>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
                             <label class="form-label">可见性</label>
                             <select class="form-select" id="fileVisibleType">
                                 <option value="1">本部门</option>
@@ -118,13 +131,13 @@
                                 <option value="3">指定部门</option>
                             </select>
                         </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">是否公开</label>
-                        <select class="form-select" id="fileIsPublic">
-                            <option value="false">否（内部文档）</option>
-                            <option value="true">是（公开文档）</option>
-                        </select>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">是否公开</label>
+                            <select class="form-select" id="fileIsPublic">
+                                <option value="false">否（内部文档）</option>
+                                <option value="true">是（公开文档）</option>
+                            </select>
+                        </div>
                     </div>
                     <div id="fileUploadProgress" class="text-center"></div>
                 </form>
@@ -162,6 +175,15 @@
                             <select class="form-select" id="urlDepartment" required></select>
                         </div>
                         <div class="col-md-6 mb-3">
+                            <label class="form-label">所属客户</label>
+                            <select class="form-select" id="urlClient">
+                                <option value="">通用方法论（所有客户可见）</option>
+                            </select>
+                            <small class="text-muted">不选则视为通用方法论，所有客户都能检索到</small>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
                             <label class="form-label">可见性</label>
                             <select class="form-select" id="urlVisibleType">
                                 <option value="1">本部门</option>
@@ -169,13 +191,13 @@
                                 <option value="3">指定部门</option>
                             </select>
                         </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">是否公开</label>
-                        <select class="form-select" id="urlIsPublic">
-                            <option value="false">否（内部文档）</option>
-                            <option value="true">是（公开文档）</option>
-                        </select>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">是否公开</label>
+                            <select class="form-select" id="urlIsPublic">
+                                <option value="false">否（内部文档）</option>
+                                <option value="true">是（公开文档）</option>
+                            </select>
+                        </div>
                     </div>
                     <div id="urlUploadProgress" class="text-center"></div>
                 </form>
@@ -240,6 +262,32 @@
         }
     }
 
+    // ================================================================
+    // 加载客户公司列表（上传表单 + 筛选栏下拉用）
+    // ================================================================
+    async function loadClients() {
+        try {
+            const resp = await fetch('/api/documents/clients');
+            const data = await resp.json();
+            if (!data.success) return;
+            const clients = data.data || [];
+            const selects = ['clientFilter', 'fileClient', 'urlClient'];
+            selects.forEach(id => {
+                const sel = document.getElementById(id);
+                if (!sel) return;
+                // 保留第一项（"全部客户" 或 "通用方法论"）
+                const first = sel.options[0] ? sel.options[0].outerHTML : '';
+                let html = first;
+                clients.forEach(c => {
+                    html += `<option value="${c.id}">${esc(c.companyName)}</option>`;
+                });
+                sel.innerHTML = html;
+            });
+        } catch (err) {
+            console.error('加载客户列表失败', err);
+        }
+    }
+
     function flattenTree(tree) {
         let result = [];
         tree.forEach(node => {
@@ -275,9 +323,11 @@
     async function loadDocuments(page = 1) {
         const keyword = document.getElementById('keyword').value.trim();
         const deptId = document.getElementById('deptFilter').value;
+        const clientId = document.getElementById('clientFilter').value;
         const params = new URLSearchParams({ page, size: pageSize });
         if (keyword) params.append('keyword', keyword);
         if (deptId) params.append('departmentId', deptId);
+        if (clientId) params.append('clientId', clientId);
 
         try {
             const resp = await fetch('/api/documents/list?' + params.toString());
@@ -291,14 +341,14 @@
             currentPage = pageResult.page || 1;
         } catch (err) {
             document.getElementById('docTableBody').innerHTML =
-                `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
+                `<tr><td colspan="10" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
         }
     }
 
     function renderTable(docs) {
         const tbody = document.getElementById('docTableBody');
         if (!docs || docs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">📭 暂无文档</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">📭 暂无文档</td></tr>';
             return;
         }
 
@@ -310,6 +360,10 @@
             const visibleMap = {1:'本部门',2:'全公司',3:'指定部门'};
             const visibleText = visibleMap[d.visibleType] || '未知';
             const isPublicClass = d.isPublic === 1 ? 'public' : '';
+            // 客户归属：null=通用方法论，非 null=客户名
+            const clientBadge = d.clientId
+                ? `<span class="visibility-badge">${esc(d.clientName || ('客户#' + d.clientId))}</span>`
+                : `<span class="visibility-badge public">通用</span>`;
             html += `
                 <tr>
                     <td>${d.id}</td>
@@ -317,6 +371,7 @@
                     <td><span class="text-ellipsis" title="${esc(d.fileName || '-')}">${esc(d.fileName || '-')}</span></td>
                     <td>${esc(d.uploaderName || '-')}</td>
                     <td>${esc(d.departmentName || '-')}</td>
+                    <td>${clientBadge}</td>
                     <td>
                         <span class="visibility-badge">${visibleText}</span>
                         <span class="visibility-badge ${isPublicClass}">${isPublic}</span>
@@ -361,6 +416,7 @@
     document.getElementById('resetBtn').addEventListener('click', () => {
         document.getElementById('keyword').value = '';
         document.getElementById('deptFilter').value = '';
+        document.getElementById('clientFilter').value = '';
         loadDocuments(1);
     });
     document.getElementById('keyword').addEventListener('keydown', function(e) {
@@ -387,6 +443,8 @@
         formData.append('file', file);
         formData.append('title', title);
         formData.append('departmentId', departmentId);
+        const fileClientId = document.getElementById('fileClient').value;
+        if (fileClientId) formData.append('clientId', fileClientId);
         formData.append('visibleType', visibleType);
         formData.append('isPublic', isPublic);
 
@@ -430,6 +488,8 @@
         const isPublic = document.getElementById('urlIsPublic').value === 'true';
 
         const payload = { url, title, departmentId, visibleType, isPublic };
+        const urlClientId = document.getElementById('urlClient').value;
+        if (urlClientId) payload.clientId = urlClientId;
 
         this.disabled = true;
         document.getElementById('urlUploadProgress').innerHTML = '<div class="spinner-border text-primary"></div>';
@@ -491,6 +551,7 @@
     // 初始化
     // ================================================================
     loadDepartments();
+    loadClients();
     loadDocuments(1);
 </script>
 </body>

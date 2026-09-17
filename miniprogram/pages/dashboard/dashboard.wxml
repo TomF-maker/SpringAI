@@ -1,0 +1,108 @@
+<!-- pages/dashboard/dashboard.wxml - 数据看板（管理员）
+     小程序端不引 ECharts，改用卡片 + 横向条形对比，更适合手机竖屏。 -->
+<view class="page">
+
+  <view wx:if="{{!loading && error}}" class="error-box">{{error}}</view>
+
+  <!-- 知识库概览 -->
+  <view class="section">
+    <view class="section-title">知识库概览</view>
+    <view class="stat-grid">
+      <view class="stat-card">
+        <view class="stat-icon">📄</view>
+        <view class="stat-num">{{stats.totalDocuments}}</view>
+        <view class="stat-label">文档总数</view>
+      </view>
+      <view class="stat-card">
+        <view class="stat-icon">✅</view>
+        <view class="stat-num">{{stats.processedDocuments}}</view>
+        <view class="stat-label">已处理</view>
+      </view>
+      <view class="stat-card">
+        <view class="stat-icon">⏳</view>
+        <view class="stat-num">{{stats.pendingDocuments}}</view>
+        <view class="stat-label">待处理</view>
+      </view>
+      <view class="stat-card">
+        <view class="stat-icon">🌐</view>
+        <view class="stat-num">{{stats.publicDocuments}}</view>
+        <view class="stat-label">公开</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 组织概览 -->
+  <view class="section">
+    <view class="section-title">组织概览</view>
+    <view class="stat-grid">
+      <view class="stat-card">
+        <view class="stat-icon">👥</view>
+        <view class="stat-num">{{stats.totalUsers}}</view>
+        <view class="stat-label">用户总数</view>
+      </view>
+      <view class="stat-card">
+        <view class="stat-icon">🏢</view>
+        <view class="stat-num">{{stats.totalDepartments}}</view>
+        <view class="stat-label">部门总数</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 提问数据 -->
+  <view class="section">
+    <view class="section-title-row">
+      <view class="section-title">提问数据</view>
+      <view class="range-switch">
+        <view class="range {{qDays === 7 ? 'active' : ''}}" bindtap="switchRange" data-days="7">7 天</view>
+        <view class="range {{qDays === 30 ? 'active' : ''}}" bindtap="switchRange" data-days="30">30 天</view>
+      </view>
+    </view>
+
+    <view wx:if="{{qStats.unavailable}}" class="warn-box">
+      ⚠️ 提问埋点表尚未创建，请先执行 doc/schema.sql 中的建表语句。
+    </view>
+
+    <view wx:if="{{!qStats.unavailable}}" class="qa-card">
+      <view class="qa-grid">
+        <view class="qa-item">
+          <view class="qa-num">{{qStats.totalQuestions}}</view>
+          <view class="qa-label">提问总数</view>
+        </view>
+        <view class="qa-item">
+          <view class="qa-num">{{qStats.todayQuestions}}</view>
+          <view class="qa-label">今日提问</view>
+        </view>
+        <view class="qa-item">
+          <view class="qa-num">{{qStats.activeUsers}}</view>
+          <view class="qa-label">活跃用户</view>
+        </view>
+        <view class="qa-item">
+          <view class="qa-num">{{qStats.totalConversations}}</view>
+          <view class="qa-label">会话总数</view>
+        </view>
+      </view>
+
+      <!-- 命中类型条形对比 -->
+      <view class="bar-section">
+        <view class="bar-title">回答来源分布</view>
+        <view class="bar-row" wx:for="{{hitTypes}}" wx:key="label">
+          <view class="bar-label">{{item.label}}</view>
+          <view class="bar-track">
+            <view class="bar-fill {{item.cls}}" style="width: {{item.pct}}%;"></view>
+          </view>
+          <view class="bar-num">{{item.value}}</view>
+        </view>
+      </view>
+
+      <view class="qa-footer">
+        <view>命中率 <text class="hl">{{qStats.hitRate}}%</text></view>
+        <view>平均耗时 <text class="hl">{{qStats.avgLatencyText}}</text></view>
+        <view>人均提问 <text class="hl">{{qStats.avgQuestionsPerUser}}</text></view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{!loading && !error}}" class="pa-loading" style="margin-top: 40rpx;">
+    数据每分钟更新
+  </view>
+</view>

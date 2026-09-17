@@ -30,7 +30,7 @@ public class ConversationController {
     public Response<Map<String, Object>> createConversation(Authentication authentication,
                                                             @RequestParam String question) {
         SysUser user = userService.findByUsernameOrEmail(authentication.getName());
-        Conversation conv = conversationService.createConversation(user.getId(), question);
+        Conversation conv = conversationService.createConversation(user.getId(), question, user.getCompanyId());
         Map<String, Object> data = new HashMap<>();
         data.put("conversationId", conv.getId());
         data.put("title", conv.getTitle());

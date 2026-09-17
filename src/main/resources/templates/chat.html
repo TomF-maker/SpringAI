@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
@@ -11,195 +11,255 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=3">
+    <link rel="stylesheet" href="/css/app.css?v=5">
     <style>
-        /* 聊天页专属：主内容区做成竖向 flex，让聊天框自适应填满视口高度。
-           原先硬编码 calc(100vh - 140px)（顶栏高度），加了汉堡按钮后手机顶栏
-           高度会变，容易把输入框挤出屏幕；用 100dvh + flex 更稳。 */
+        /* 聊天页专属：主内容区做成竖向 flex，让聊天框自适应填满视口高度。 */
         .main-content {
             display: flex;
             flex-direction: column;
             height: 100vh;
             height: 100dvh;
+            /* 聊天页去掉网格纹理，避免干扰气泡阅读 */
+            background-image: none;
         }
         /* 游客提示条 */
         .guest-banner {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: #fff8e6;
-            border: 1px solid #fde68a;
-            color: #92400e;
-            border-radius: 10px;
+            background: var(--pa-warning-soft, #FFF5E0);
+            border: 1px solid rgba(181, 116, 0, 0.16);
+            color: var(--pa-warning, #B57400);
+            border-radius: var(--pa-radius);
             padding: 10px 16px;
-            margin-bottom: 16px;
-            font-size: 14px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            font-weight: 500;
         }
-        .guest-banner i { font-size: 16px; }
+        .guest-banner i { font-size: 16px; color: var(--pa-warning); }
+        .guest-banner .btn { font-size: 12px; padding: 4px 12px; }
         .chat-container {
             width: 100%;
             max-width: 100%;
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            background: var(--pa-surface, #fff);
+            border-radius: var(--pa-radius-lg);
+            box-shadow:
+                0 4px 12px rgba(10, 37, 64, 0.06),
+                0 1px 3px rgba(10, 37, 64, 0.04);
+            border: 1px solid var(--pa-border, #E5E7EB);
             overflow: hidden;
             display: flex;
             flex-direction: column;
             flex: 1;
             min-height: 0;
         }
+        /* Stripe 风：header 白底 + 1px 底边，不再用深色渐变 */
         .chat-header {
-            background: linear-gradient(135deg, #1a73e8, #0d47a1);
-            color: white;
+            background: var(--pa-surface, #fff);
+            color: var(--pa-ink, #0A2540);
             padding: 16px 24px;
-            font-size: 18px;
-            font-weight: 600;
+            font-size: 16px;
+            font-weight: 700;
             display: flex;
             align-items: center;
             gap: 10px;
             flex-shrink: 0;
+            letter-spacing: -0.2px;
+            border-bottom: 1px solid var(--pa-border, #E5E7EB);
         }
-        /* 发起新会话：推到最右。用 margin-left:auto 而不是 justify-content:space-between，
-           因为标题那边是多个内联元素（文字 + 徽章），space-between 会把它们也拆开。 */
+        .chat-header .header-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #635BFF 0%, #4F47D6 100%);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 4px 10px rgba(99, 91, 255, 0.28);
+        }
         .new-chat-btn {
             margin-left: auto;
-            background: rgba(255, 255, 255, .16);
-            border: 1px solid rgba(255, 255, 255, .35);
-            color: #fff;
+            background: var(--pa-primary-soft, #F0EFFF);
+            border: 1px solid var(--pa-primary-tint, #E6E1FF);
+            color: var(--pa-primary-700, #4F47D6);
             font-size: 13px;
-            font-weight: 500;
-            padding: 5px 14px;
-            border-radius: 8px;
+            font-weight: 600;
+            padding: 7px 14px;
+            border-radius: var(--pa-radius);
             cursor: pointer;
             white-space: nowrap;
-            transition: background .18s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all .18s cubic-bezier(0.2, 0.7, 0.2, 1);
         }
-        .new-chat-btn:hover { background: rgba(255, 255, 255, .28); }
+        .new-chat-btn:hover {
+            background: var(--pa-primary, #635BFF);
+            border-color: var(--pa-primary, #635BFF);
+            color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 14px rgba(99, 91, 255, 0.28);
+        }
         @media (max-width: 991.98px) {
-            /* 窄屏只留图标，标题已经够挤了 */
             .new-chat-btn .btn-text { display: none; }
+            .new-chat-btn { padding: 7px 10px; }
         }
-
         .chat-header .badge {
-            background: rgba(255,255,255,0.2);
-            font-size: 12px;
-            padding: 2px 12px;
-            border-radius: 12px;
-            font-weight: 400;
+            background: var(--pa-bg-mute, #F4F6F8);
+            border: 1px solid var(--pa-border, #E5E7EB);
+            color: var(--pa-text-soft, #425466);
+            font-size: 11px;
+            padding: 2px 10px;
+            border-radius: 999px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
         }
         .chat-messages {
             flex: 1;
             overflow-y: auto;
-            padding: 20px 24px;
-            background: #f8f9fa;
+            padding: 24px;
+            background: var(--pa-bg-soft, #FAFBFC);
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 16px;
         }
         .message {
-            max-width: 80%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            line-height: 1.6;
+            max-width: 78%;
+            padding: 14px 18px;
+            border-radius: var(--pa-radius-lg);
+            line-height: 1.65;
             word-wrap: break-word;
-            animation: fadeIn 0.3s ease;
+            animation: fadeIn 0.28s ease;
+            font-size: 14px;
         }
         .message.user {
             align-self: flex-end;
-            background: #1a73e8;
-            color: white;
+            background: linear-gradient(135deg, #635BFF 0%, #4F47D6 100%);
+            color: #fff;
             border-bottom-right-radius: 4px;
+            box-shadow:
+                0 4px 12px rgba(99, 91, 255, 0.20),
+                0 1px 3px rgba(99, 91, 255, 0.10);
         }
         .message.ai {
             align-self: flex-start;
-            background: white;
-            color: #1e293b;
-            border: 1px solid #e2e8f0;
+            background: var(--pa-surface, #fff);
+            color: var(--pa-ink, #0A2540);
+            border: 1px solid var(--pa-border, #E5E7EB);
             border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 2px rgba(10, 37, 64, 0.04);
         }
         .message .role-tag {
             font-size: 11px;
-            font-weight: 600;
-            opacity: 0.7;
-            margin-bottom: 4px;
+            font-weight: 700;
+            opacity: 0.8;
+            margin-bottom: 6px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
         }
-        .message.ai .role-tag { color: #1a73e8; }
-        .message.user .role-tag { color: rgba(255,255,255,0.8); }
+        .message.ai .role-tag { color: var(--pa-primary, #635BFF); }
+        .message.user .role-tag { color: rgba(255,255,255,0.85); }
         .message .content { white-space: pre-wrap; }
         .message .time {
             font-size: 11px;
             opacity: 0.6;
-            margin-top: 4px;
+            margin-top: 6px;
             text-align: right;
         }
-        .message.user .time { color: rgba(255,255,255,0.8); }
-        .message.ai .time { color: #94a3b8; }
+        .message.user .time { color: rgba(255,255,255,0.85); }
+        .message.ai .time { color: var(--pa-text-faint, #B0BCC8); }
         .chat-input-area {
-            padding: 16px 24px;
-            border-top: 1px solid #e2e8f0;
-            background: white;
+            padding: 14px 20px;
+            border-top: 1px solid var(--pa-border, #E5E7EB);
+            background: var(--pa-surface, #fff);
             display: flex;
-            gap: 12px;
+            gap: 10px;
             flex-shrink: 0;
+            align-items: center;
         }
         .chat-input-area input {
             flex: 1;
-            padding: 12px 16px;
-            border: 1px solid #d1d5db;
-            border-radius: 24px;
+            padding: 12px 18px;
+            border: 1px solid var(--pa-border-strong, #D1D5DB);
+            border-radius: 999px;
             font-size: 14px;
             outline: none;
+            background: var(--pa-surface-2, #FAFBFC);
+            color: var(--pa-ink, #0A2540);
+            transition: border-color .14s ease, box-shadow .14s ease, background .14s ease;
         }
-        .chat-input-area input:focus { border-color: #1a73e8; }
+        .chat-input-area input::placeholder { color: var(--pa-text-faint, #B0BCC8); }
+        .chat-input-area input:focus {
+            border-color: var(--pa-primary, #635BFF);
+            box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.14);
+            background: #fff;
+        }
         .chat-input-area button {
-            padding: 12px 28px;
-            background: #1a73e8;
-            color: white;
+            padding: 12px 26px;
+            background: var(--pa-primary, #635BFF);
+            color: #fff;
             border: none;
-            border-radius: 24px;
+            border-radius: 999px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
+            letter-spacing: 0.3px;
+            transition: all .18s cubic-bezier(0.2, 0.7, 0.2, 1);
+            box-shadow:
+                0 4px 12px rgba(99, 91, 255, 0.28),
+                0 1px 3px rgba(99, 91, 255, 0.16);
         }
-        .chat-input-area button:hover { background: #1557b0; }
-        .chat-input-area button:disabled { background: #94a3b8; cursor: not-allowed; }
-        /* 取消按钮：和"发送"区分开，用描边而不是实心蓝 —— 它是个破坏性动作，
-           不该看起来像主操作 */
+        .chat-input-area button:hover {
+            background: var(--pa-primary-600, #5A52E0);
+            transform: translateY(-1px);
+            box-shadow:
+                0 8px 18px rgba(99, 91, 255, 0.36),
+                0 2px 6px rgba(99, 91, 255, 0.20);
+        }
+        .chat-input-area button:active { transform: translateY(0); }
+        .chat-input-area button:disabled {
+            background: var(--pa-text-faint, #B0BCC8);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
         .chat-input-area #cancelBtn {
             background: #fff;
-            color: #dc3545;
-            border: 1px solid #f5c2c7;
+            color: var(--pa-danger, #D6483D);
+            border: 1px solid rgba(214, 72, 61, 0.24);
+            box-shadow: none;
         }
-        .chat-input-area #cancelBtn:hover { background: #fdf2f2; }
+        .chat-input-area #cancelBtn:hover {
+            background: var(--pa-danger-soft, #FDECEA);
+            border-color: rgba(214, 72, 61, 0.4);
+            color: var(--pa-danger, #D6483D);
+            box-shadow: none;
+        }
         .typing-indicator {
             display: none;
             align-self: flex-start;
-            background: white;
-            padding: 12px 20px;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-            color: #64748b;
+            background: var(--pa-surface, #fff);
+            padding: 14px 18px;
+            border-radius: var(--pa-radius-lg);
+            border: 1px solid var(--pa-border, #E5E7EB);
+            color: var(--pa-text-muted, #8898AA);
             font-size: 14px;
         }
         .typing-indicator.active { display: block; }
-
-        /* ---------- 气泡内的"思考中"占位 ----------
-           在第一个字到达之前显示在 AI 气泡里。
-           为什么不用上面那个独立的 typing-indicator：它在响应头回来时就被关掉了，
-           而第一个 token 还要再等几秒（检索 + 模型首字），那几秒用户盯着的是**空白气泡**。
-           这个占位由第一个内容 chunk 自动顶掉（contentDiv.textContent = fullText 会覆盖）。 */
         .thinking {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            color: #94a3b8;
+            color: var(--pa-text-faint, #B0BCC8);
             font-size: 14px;
         }
         .thinking .dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
-            background: #cbd5e1;
+            background: var(--pa-primary-tint, #E6E1FF);
             animation: thinking-bounce 1.2s infinite ease-in-out;
         }
         .thinking .dot:nth-child(2) { animation-delay: .15s; }
@@ -208,46 +268,90 @@
             0%, 60%, 100% { transform: translateY(0); opacity: .45; }
             30% { transform: translateY(-4px); opacity: 1; }
         }
-
-        /* ---------- 答案评价控件 ---------- */
         .answer-feedback {
             margin-top: 10px;
             padding-top: 10px;
-            border-top: 1px dashed #e2e8f0;
+            border-top: 1px dashed var(--pa-border, #E5E7EB);
         }
         .answer-feedback .fb-ask {
             display: block;
             margin-bottom: 8px;
             font-size: 12px;
-            color: #94a3b8;
+            color: var(--pa-text-muted, #8898AA);
         }
-        .answer-feedback .fb-ask.fb-error { color: #dc3545; }
+        .answer-feedback .fb-ask.fb-error { color: var(--pa-danger, #D6483D); }
         .answer-feedback .fb-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
         .answer-feedback .fb-btn {
-            border: 1px solid #dbe3ec;
+            border: 1px solid var(--pa-border, #E5E7EB);
             background: #fff;
-            color: #475569;
+            color: var(--pa-text-soft, #425466);
             font-size: 12px;
             padding: 4px 12px;
-            border-radius: 14px;
+            border-radius: 999px;
             cursor: pointer;
-            transition: border-color .15s, color .15s, background .15s;
+            transition: all .15s ease;
         }
         .answer-feedback .fb-btn:hover {
-            border-color: #1a73e8;
-            color: #1a73e8;
-            background: #f4f8ff;
+            border-color: var(--pa-primary, #635BFF);
+            color: var(--pa-primary-700, #4F47D6);
+            background: var(--pa-primary-soft, #F0EFFF);
+        }
+        /* 答案来源标注：AI 气泡末尾可展开看命中的文档片段 */
+        .answer-sources {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(99, 91, 255, 0.12);
+        }
+        .src-header {
+            font-size: 12px;
+            color: var(--pa-primary, #635BFF);
+            cursor: pointer;
+            user-select: none;
+            font-weight: 600;
+        }
+        .src-header:hover { opacity: 0.75; }
+        .src-header::before { content: '📎 '; }
+        .src-header::after { content: ' ▸'; font-size: 10px; }
+        .src-header.src-expanded::after { content: ' ▾'; font-size: 10px; }
+        .src-list { margin-top: 6px; display: none; }
+        .src-item {
+            margin-bottom: 6px;
+            padding: 6px 8px;
+            background: var(--pa-primary-soft, #F0EFFF);
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .src-title {
+            color: var(--pa-text, #0A2540);
+            font-weight: 600;
+        }
+        .src-score {
+            margin-left: 8px;
+            color: var(--pa-text-muted, #8898AA);
+            font-weight: 400;
+            font-size: 11px;
+        }
+        .src-chunk {
+            margin-top: 4px;
+            color: var(--pa-text-soft, #425466);
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
         @media (max-width: 991.98px) {
-            .chat-header { padding: 12px 16px; font-size: 16px; }
-            .chat-messages { padding: 14px 16px; }
-            .chat-input-area { padding: 12px 16px; gap: 8px; }
-            .chat-input-area button { padding: 12px 20px; }
-            .message { max-width: 88%; }
+            .chat-header { padding: 12px 16px; font-size: 15px; }
+            .chat-messages { padding: 16px; gap: 12px; }
+            .chat-input-area { padding: 10px 14px; gap: 8px; }
+            .chat-input-area button { padding: 12px 18px; }
+            .message { max-width: 88%; padding: 11px 15px; }
+        }
+        @media (max-width: 575.98px) {
+            .chat-input-area input { padding: 13px 18px; font-size: 15px; }
+            .chat-input-area button { padding: 12px 16px; font-size: 14px; }
         }
     </style>
 </head>
@@ -394,7 +498,7 @@
     // ================================================================
     // 3. 消息操作（提前定义）
     // ================================================================
-    function addMessage(role, content) {
+    function addMessage(role, content, sources) {
         const messagesContainer = document.getElementById('chatMessages');
         const typingIndicator = document.getElementById('typingIndicator');
         const welcomeMsg = messagesContainer.querySelector('.message.ai:first-child');
@@ -413,18 +517,75 @@
         contentDiv.className = 'content';
         contentDiv.textContent = content;
 
+        messageDiv.appendChild(roleTag);
+        messageDiv.appendChild(contentDiv);
+
+        // 答案来源标注：只在 AI 回答且有命中片段时渲染。兜底/工具调用等无检索路径
+        // 不带 sources（undefined/null/空数组都跳过），前端就不会出现空的「来源」区。
+        if (role === 'ai' && sources && sources.length) {
+            messageDiv.appendChild(buildSourceBox(sources));
+        }
+
         const timeDiv = document.createElement('div');
         timeDiv.className = 'time';
         timeDiv.textContent = getCurrentTime();
 
-        messageDiv.appendChild(roleTag);
-        messageDiv.appendChild(contentDiv);
         messageDiv.appendChild(timeDiv);
 
         messagesContainer.insertBefore(messageDiv, typingIndicator);
         scrollToBottom();
         // 返回外层 .message 元素：评价控件要挂在它上面，不只是内容区
         return messageDiv;
+    }
+
+    /**
+     * 构建答案来源标注区块：默认折叠，点击展开看每个命中片段的标题 + 相关度 + 原文。
+     * 全程用 textContent 赋值，避免文档片段里的 HTML 被当成真的 HTML 执行（XSS）。
+     */
+    function buildSourceBox(sources) {
+        const box = document.createElement('div');
+        box.className = 'answer-sources';
+
+        const header = document.createElement('div');
+        header.className = 'src-header';
+        header.textContent = '来源（' + sources.length + '）';
+
+        const list = document.createElement('div');
+        list.className = 'src-list';
+
+        sources.forEach(function (s) {
+            const item = document.createElement('div');
+            item.className = 'src-item';
+
+            const titleRow = document.createElement('div');
+            titleRow.className = 'src-title';
+            titleRow.textContent = '《' + (s.documentTitle || '未知文档') + '》';
+            if (s.score != null) {
+                const scoreSpan = document.createElement('span');
+                scoreSpan.className = 'src-score';
+                scoreSpan.textContent = '相关度 ' + (s.score * 100).toFixed(0) + '%';
+                titleRow.appendChild(scoreSpan);
+            }
+            item.appendChild(titleRow);
+
+            if (s.chunkText) {
+                const chunkDiv = document.createElement('div');
+                chunkDiv.className = 'src-chunk';
+                chunkDiv.textContent = s.chunkText;
+                item.appendChild(chunkDiv);
+            }
+            list.appendChild(item);
+        });
+
+        header.addEventListener('click', function () {
+            const expanded = list.style.display === 'block';
+            list.style.display = expanded ? 'none' : 'block';
+            header.classList.toggle('src-expanded', !expanded);
+        });
+
+        box.appendChild(header);
+        box.appendChild(list);
+        return box;
     }
 
     // ================================================================
@@ -588,7 +749,7 @@
             const conv = envelope.data;
             if (conv && conv.messages) {
                 conv.messages.forEach(msg => {
-                    addMessage(msg.role === 'user' ? 'user' : 'ai', msg.content);
+                    addMessage(msg.role === 'user' ? 'user' : 'ai', msg.content, msg.sources);
                 });
             }
         } catch (err) {
@@ -641,7 +802,7 @@
                 // 非流式路径也要接住会话 id（流式那条是从 meta 帧拿的）。
                 // 不然走这条路的提问学不到会话 id，下一问会另起一个会话。
                 rememberConversationId(data.data.conversationId);
-                const aiDiv = addMessage('ai', data.data.answer);
+                const aiDiv = addMessage('ai', data.data.answer, data.data.sources);
                 attachFeedbackWidget(aiDiv, message, data.data.answer, data.data.questionLogId);
             } else {
                 addMessage('ai', `❌ 出错了：${data.errMessage || '未知错误'}`);
@@ -710,6 +871,9 @@
             let hasReceivedData = false;
             // 由 meta 帧带回来，评价时用它关联这次提问
             let currentQuestionLogId = null;
+            // 由 meta 帧带回来，答案来源标注。流结束后渲染到气泡末尾 ——
+            // 流式过程中插入会打断逐字效果，等流完了再挂上去。
+            let currentSources = null;
             const startTime = new Date();
 
             // 按 SSE 规范解析：事件以空行分隔，同一事件内的多个 data: 行用 \n 连接。
@@ -743,6 +907,10 @@
                             // 评价要挂到这次提问上，靠它关联
                             if (parsed.questionLogId) {
                                 currentQuestionLogId = parsed.questionLogId;
+                            }
+                            // 答案来源标注：meta 帧在回答流之前发出，先存着
+                            if (parsed.sources && parsed.sources.length) {
+                                currentSources = parsed.sources;
                             }
                             return;
                         }
@@ -784,6 +952,10 @@
                 timeDiv.textContent = getCurrentTime();
             } else {
                 attachFeedbackWidget(aiMessageDiv, message, fullText, currentQuestionLogId);
+                // 答案来源标注：流结束后渲染，避免打断逐字生成
+                if (currentSources && currentSources.length) {
+                    aiMessageDiv.insertBefore(buildSourceBox(currentSources), timeDiv);
+                }
             }
 
             scrollToBottom();

@@ -12,6 +12,8 @@ public class DocumentListDTO {
     private String fileType;
     private String uploaderName;
     private String departmentName;
+    private Long clientId;
+    private String clientName;      // 客户公司名；null=通用方法论
     private Integer visibleType;
     private String visibleText;
     private Integer isPublic;

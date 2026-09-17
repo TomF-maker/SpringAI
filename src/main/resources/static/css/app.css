@@ -1,30 +1,177 @@
 /* ============================================
-   采购智能助手 - 共享布局样式
-   侧边栏 / 顶栏 / 主内容区 / 移动端抽屉
+   采购智能助手 - 共享布局样式（Stripe Dashboard 风）
 
-   本文件由 templates/fragments/layout.html 的片段配套使用。
-   页面专属样式仍留在各页 <style> 中，并在本文件之后加载，以便覆盖。
+   设计语言：
+   - 纯白底 + 单一品牌色（Stripe 紫蓝 #635BFF）
+   - Inter / -apple-system 字体栈，字重对比强
+   - 极致克制的阴影，主靠 1px 边框分层
+   - 大留白、精致圆角、subtle 渐变 CTA
+
+   本文件由 templates/fragments/layout.html 配套使用。
+   页面专属样式仍留在各页 <style> 中，本文件之后加载，以便覆盖。
    ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    /* —— 品牌色：Stripe Indigo —— */
+    --pa-primary: #635BFF;
+    --pa-primary-600: #5A52E0;
+    --pa-primary-700: #4F47D6;
+    --pa-primary-800: #3F36B5;
+    --pa-primary-soft: #F0EFFF;
+    --pa-primary-tint: #E6E1FF;
+    /* 高对比深蓝黑 —— Stripe Dashboard 的招牌文字色 */
+    --pa-ink: #0A2540;
+
+    /* —— 中性色：冷灰，配合白底最干净 —— */
+    --pa-bg: #FFFFFF;
+    --pa-bg-soft: #FAFBFC;
+    --pa-bg-mute: #F4F6F8;
+    --pa-surface: #FFFFFF;
+    --pa-surface-2: #FAFBFC;
+    --pa-border: #E5E7EB;
+    --pa-border-soft: #EDF0F4;
+    --pa-border-strong: #D1D5DB;
+    --pa-text: #0A2540;
+    --pa-text-soft: #425466;
+    --pa-text-muted: #8898AA;
+    --pa-text-faint: #B0BCC8;
+
+    /* —— 语义色 —— */
+    --pa-success: #1A8244;
+    --pa-success-soft: #E6F4EB;
+    --pa-warning: #B57400;
+    --pa-warning-soft: #FFF5E0;
+    --pa-danger: #D6483D;
+    --pa-danger-soft: #FDECEA;
+    --pa-info: #2B6CB0;
+    --pa-info-soft: #E8F1FB;
+
+    /* —— 间距尺度 —— */
+    --pa-space-1: 4px;
+    --pa-space-2: 8px;
+    --pa-space-3: 12px;
+    --pa-space-4: 16px;
+    --pa-space-5: 20px;
+    --pa-space-6: 24px;
+    --pa-space-8: 32px;
+    --pa-space-10: 40px;
+    --pa-space-12: 48px;
+
+    /* —— 圆角 —— */
+    --pa-radius-sm: 6px;
+    --pa-radius: 8px;
+    --pa-radius-lg: 12px;
+    --pa-radius-xl: 16px;
+    --pa-radius-pill: 999px;
+
+    /* —— 阴影：极致克制，主靠边框分层 —— */
+    --pa-shadow-xs: 0 1px 2px rgba(10, 37, 64, 0.04);
+    --pa-shadow-sm: 0 1px 3px rgba(10, 37, 64, 0.05), 0 1px 2px rgba(10, 37, 64, 0.03);
+    --pa-shadow: 0 4px 12px rgba(10, 37, 64, 0.06), 0 1px 3px rgba(10, 37, 64, 0.04);
+    --pa-shadow-lg: 0 16px 40px rgba(10, 37, 64, 0.10), 0 4px 12px rgba(10, 37, 64, 0.06);
+    --pa-shadow-xl: 0 24px 60px rgba(10, 37, 64, 0.14), 0 8px 24px rgba(10, 37, 64, 0.08);
+    /* CTA 专属：紫蓝色光晕，只在主按钮上用 */
+    --pa-shadow-cta: 0 8px 24px rgba(99, 91, 255, 0.28), 0 2px 6px rgba(99, 91, 255, 0.16);
+
+    /* —— 动效 —— */
+    --pa-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+    --pa-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --pa-dur-fast: 0.14s;
+    --pa-dur: 0.22s;
+    --pa-dur-slow: 0.4s;
+
+    /* —— 侧边栏宽度令牌 —— */
+    --pa-sidebar-w: 240px;
+    --pa-sidebar-w-mobile: 272px;
+}
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+html, body { height: 100%; }
+
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f5f7fa;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+                 'Source Han Sans SC', 'Noto Sans CJK SC', sans-serif;
+    background: var(--pa-bg);
+    color: var(--pa-text);
     min-height: 100vh;
     min-height: 100dvh;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* 等宽字体类（代码、token 等） */
+.mono, code, pre, kbd {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+::selection { background: rgba(99, 91, 255, 0.18); color: var(--pa-primary-700); }
+
+a {
+    color: var(--pa-primary-600);
+    text-decoration: none;
+    transition: color var(--pa-dur-fast) var(--pa-ease);
+}
+a:hover { color: var(--pa-primary-700); }
+
+/* —— Bootstrap 按钮对齐 Stripe 风 —— */
+.btn {
+    font-weight: 500;
+    letter-spacing: 0.1px;
+    border-radius: var(--pa-radius);
+    transition: all var(--pa-dur-fast) var(--pa-ease);
+}
+.btn-primary {
+    background: var(--pa-primary);
+    border-color: var(--pa-primary);
+    color: #fff;
+    box-shadow: var(--pa-shadow-cta);
+}
+.btn-primary:hover, .btn-primary:focus {
+    background: var(--pa-primary-600);
+    border-color: var(--pa-primary-600);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px rgba(99, 91, 255, 0.36), 0 4px 10px rgba(99, 91, 255, 0.20);
+}
+.btn-primary:active { transform: translateY(0); }
+.btn-outline-primary {
+    color: var(--pa-primary-600);
+    border-color: var(--pa-border-strong);
+    background: var(--pa-surface);
+}
+.btn-outline-primary:hover {
+    background: var(--pa-primary-soft);
+    border-color: var(--pa-primary);
+    color: var(--pa-primary-700);
+}
+.btn-outline-secondary {
+    color: var(--pa-text-soft);
+    border-color: var(--pa-border-strong);
+    background: var(--pa-surface);
+}
+.btn-outline-secondary:hover {
+    background: var(--pa-bg-mute);
+    color: var(--pa-text);
 }
 
 .wrapper { display: flex; min-height: 100vh; min-height: 100dvh; }
 
 /* ============================================
-   侧边栏
+   侧边栏 —— Stripe Dashboard 风：纯白底 + 紫蓝 active
    ============================================ */
 .sidebar {
-    width: 220px;
-    background: #1a1a2e;
-    color: #fff;
-    padding: 20px 0;
+    width: var(--pa-sidebar-w);
+    background: var(--pa-surface);
+    color: var(--pa-text);
+    padding: var(--pa-space-6) 0 var(--pa-space-4);
     position: fixed;
     top: 0;
     left: 0;
@@ -32,73 +179,160 @@ body {
     overflow-y: auto;
     overscroll-behavior: contain;
     z-index: 100;
+    border-right: 1px solid var(--pa-border);
+    /* 极克制的高光，只在顶部一抹 */
+    background-image:
+        linear-gradient(180deg, rgba(99, 91, 255, 0.02) 0%, transparent 320px);
 }
 
 .sidebar-brand {
-    padding: 0 20px 20px;
-    font-size: 20px;
-    font-weight: 600;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding: 0 var(--pa-space-6) var(--pa-space-5);
+    border-bottom: 1px solid var(--pa-border-soft);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: var(--pa-space-3);
 }
-.sidebar-brand i { margin-right: 10px; }
+.sidebar-brand .brand-mark {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #635BFF 0%, #4F47D6 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(99, 91, 255, 0.32), 0 1px 2px rgba(99, 91, 255, 0.16);
+}
+.sidebar-brand .brand-mark i {
+    font-size: 18px;
+    color: #fff;
+}
+.sidebar-brand .brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+    min-width: 0;
+}
+.sidebar-brand .brand-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--pa-ink);
+    letter-spacing: -0.2px;
+}
+.sidebar-brand .brand-sub {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--pa-text-faint);
+    letter-spacing: 0.4px;
+    margin-top: 2px;
+}
+
+.sidebar .nav { margin-top: var(--pa-space-2); }
 
 .sidebar .nav-link {
-    color: rgba(255,255,255,0.7);
-    padding: 10px 20px;
+    color: var(--pa-text-soft);
+    padding: 9px var(--pa-space-6);
     border-radius: 0;
-    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    position: relative;
+    margin: 0 var(--pa-space-3);
+    border-radius: var(--pa-radius);
+    transition: background var(--pa-dur-fast) var(--pa-ease),
+                color var(--pa-dur-fast) var(--pa-ease);
 }
-.sidebar .nav-link:hover,
+.sidebar .nav-link i {
+    font-size: 17px;
+    width: 20px;
+    text-align: center;
+    color: var(--pa-text-faint);
+    transition: color var(--pa-dur-fast) var(--pa-ease);
+}
+.sidebar .nav-link:hover {
+    color: var(--pa-ink);
+    background: var(--pa-bg-mute);
+}
+.sidebar .nav-link:hover i { color: var(--pa-text-soft); }
+
+/* active：紫蓝浅底 + 紫蓝文字 + 左侧紫蓝竖条 */
 .sidebar .nav-link.active {
-    color: #fff;
-    background: rgba(255,255,255,0.1);
+    color: var(--pa-primary-700);
+    background: var(--pa-primary-soft);
+    font-weight: 600;
 }
-.sidebar .nav-link i { margin-right: 10px; }
+.sidebar .nav-link.active::before {
+    content: '';
+    position: absolute;
+    left: calc(-1 * var(--pa-space-3));
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    background: var(--pa-primary);
+    border-radius: 0 3px 3px 0;
+    box-shadow: 0 0 8px rgba(99, 91, 255, 0.4);
+}
+.sidebar .nav-link.active i { color: var(--pa-primary); }
 
 /* 菜单分组分割线 */
 .sidebar .nav-divider {
     flex: none;
     height: 1px;
-    margin: 8px 20px;
+    margin: var(--pa-space-3) var(--pa-space-6);
     padding: 0;
     list-style: none;
-    background: rgba(255,255,255,0.1);
+    background: var(--pa-border-soft);
 }
 
-/* 仅登录用户可见的菜单项（历史记录 / 文档管理 / 个人中心）。
-   游客默认隐藏，只留「智能问答」—— 那几项点进去都会被各自的 token 检查弹回登录页。
+.sidebar .nav-section-label {
+    list-style: none;
+    padding: var(--pa-space-4) var(--pa-space-6) var(--pa-space-1);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--pa-text-faint);
+}
 
-   body 上的 is-authed / is-admin 由 templates/fragments/layout.html 侧边栏片段
-   开头的内联脚本设置（不是 app.js，那样会先渲染再收起、闪一下）。 */
+/* 仅登录用户可见的菜单项 */
 [data-auth-only] { display: none; }
 body.is-authed [data-auth-only] { display: block; }
 
-/* 仅管理员可见的菜单项。is-admin 蕴含 is-authed */
+/* 仅管理员可见的菜单项 */
 [data-admin-only] { display: none; }
 body.is-admin [data-admin-only] { display: block; }
 
 /* ============================================
-   顶栏
+   顶栏 —— 白底卡片 + 1px 边框
    ============================================ */
 .topbar {
-    background: white;
-    padding: 12px 24px;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    margin-bottom: 20px;
+    background: var(--pa-surface);
+    padding: var(--pa-space-3) var(--pa-space-5);
+    border-radius: var(--pa-radius-lg);
+    box-shadow: var(--pa-shadow-sm);
+    margin-bottom: var(--pa-space-5);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: var(--pa-space-3);
+    border: 1px solid var(--pa-border);
 }
 .topbar-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--pa-space-3);
     min-width: 0;
 }
 .topbar-title {
-    font-size: 16px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--pa-ink);
+    letter-spacing: -0.2px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -106,41 +340,78 @@ body.is-admin [data-admin-only] { display: block; }
 .topbar .user-info {
     display: flex;
     align-items: center;
-    font-size: 14px;
+    font-size: 13px;
     white-space: nowrap;
+    color: var(--pa-text-muted);
 }
-.topbar .user-info i { margin-right: 6px; }
-.topbar .logout-btn { cursor: pointer; color: #dc3545; text-decoration: none; }
+.topbar .user-info i { margin-right: 6px; color: var(--pa-primary); }
+.topbar .logout-btn {
+    cursor: pointer;
+    color: var(--pa-text-soft);
+    text-decoration: none;
+    padding: 6px 12px;
+    border-radius: var(--pa-radius);
+    font-size: 13px;
+    font-weight: 500;
+    transition: all var(--pa-dur-fast) var(--pa-ease);
+}
+.topbar .logout-btn:hover {
+    background: var(--pa-danger-soft);
+    color: var(--pa-danger);
+}
 
-/* ---------- 顶栏的登录 / 未登录两态 ----------
-   由 body.is-authed 驱动（那个类是 sidebar 片段开头的内联脚本写的），
-   这里只负责显隐，不再多一处 JS 判定。 */
 .topbar .user-info .auth-only { display: none; align-items: center; }
 .topbar .user-info .guest-only { display: inline-flex; align-items: center; gap: 8px; }
 body.is-authed .topbar .user-info .auth-only { display: inline-flex; }
 body.is-authed .topbar .user-info .guest-only { display: none; }
-/* 未登录时把占位的"用户"去掉，只留登录/注册按钮 */
-.topbar .user-info .guest-only .btn { font-size: 13px; padding: 3px 12px; }
+.topbar .user-info .guest-only .btn { font-size: 13px; padding: 6px 14px; }
 
-/* ---------- 分页栏 ----------
-   四个列表页共用，由 app.js 的 window.Pager 渲染。
-   容器原本是 <ul class="pagination">，现在换成普通 div（里面自己建 ul），
-   因为一栏里除了页码还要放"共 N 条"和每页条数选择。 */
+/* ---------- 分页栏 ---------- */
 .pager-bar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--pa-space-3);
     flex-wrap: wrap;
-    margin-top: 16px;
+    margin-top: var(--pa-space-4);
+    padding: var(--pa-space-3) var(--pa-space-4);
+    background: var(--pa-surface);
+    border: 1px solid var(--pa-border);
+    border-radius: var(--pa-radius);
 }
-.pager-summary { font-size: 13px; color: #64748b; margin-right: auto; }
-.pager-bar .pagination { margin-bottom: 0; }
+.pager-summary { font-size: 13px; color: var(--pa-text-muted); margin-right: auto; }
+.pager-bar .pagination { margin-bottom: 0; gap: 4px; }
+.pager-bar .page-link {
+    color: var(--pa-text-soft);
+    border: 1px solid var(--pa-border);
+    border-radius: var(--pa-radius-sm);
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all var(--pa-dur-fast) var(--pa-ease);
+    min-width: 32px;
+    text-align: center;
+}
+.pager-bar .page-link:hover {
+    background: var(--pa-primary-soft);
+    color: var(--pa-primary-700);
+    border-color: var(--pa-primary-tint);
+}
+.pager-bar .page-item.active .page-link {
+    background: var(--pa-primary);
+    border-color: var(--pa-primary);
+    color: #fff;
+    box-shadow: var(--pa-shadow-cta);
+}
+.pager-bar .page-item.disabled .page-link {
+    color: var(--pa-text-faint);
+    background: var(--pa-surface);
+}
 .pager-tools {
     display: flex;
     align-items: center;
     gap: 6px;
     font-size: 13px;
-    color: #64748b;
+    color: var(--pa-text-muted);
 }
 .pager-tools .form-select,
 .pager-tools .form-control { width: auto; }
@@ -148,74 +419,153 @@ body.is-authed .topbar .user-info .guest-only { display: none; }
 .pager-jump .form-control { width: 68px; }
 
 @media (max-width: 991.98px) {
-    /* 窄屏：摘要独占一行，页码和工具换行显示，避免挤成一团 */
     .pager-summary { flex-basis: 100%; margin-right: 0; }
 }
 
-/* 汉堡按钮：默认隐藏，仅窄屏出现 */
+/* 汉堡按钮 */
 .drawer-toggle {
     display: none;
     align-items: center;
     justify-content: center;
     background: transparent;
     border: 0;
-    padding: 4px 8px;
-    font-size: 22px;
+    padding: 6px 10px;
+    font-size: 20px;
     line-height: 1;
-    color: #1e293b;
+    color: var(--pa-ink);
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--pa-radius);
+    transition: background var(--pa-dur-fast) var(--pa-ease);
 }
-.drawer-toggle:hover { background: #f1f5f9; }
+.drawer-toggle:hover { background: var(--pa-bg-mute); color: var(--pa-primary); }
+.drawer-toggle:focus-visible {
+    outline: 2px solid var(--pa-primary);
+    outline-offset: 2px;
+}
 
 /* ============================================
    主内容区
    ============================================ */
 .main-content {
-    margin-left: 220px;
+    margin-left: var(--pa-sidebar-w);
     flex: 1;
-    padding: 20px;
+    padding: var(--pa-space-6) var(--pa-space-8);
     min-height: 100vh;
     min-height: 100dvh;
     min-width: 0;
+    background: var(--pa-bg);
+    /* 极轻的网格纹理，Stripe Dashboard 也有这种细节 */
+    background-image:
+        radial-gradient(circle at 1px 1px, rgba(10, 37, 64, 0.025) 1px, transparent 0);
+    background-size: 24px 24px;
 }
 
 /* ============================================
    移动端遮罩
-   必须是 .sidebar 的兄弟节点：.sidebar 上的 transform 会成为
-   position:fixed 后代的包含块，加上 overflow-y:auto，嵌套会被裁掉。
    ============================================ */
 .sidebar-backdrop {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(15,23,42,0.45);
+    background: rgba(10, 37, 64, 0.32);
     z-index: 99;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity var(--pa-dur) var(--pa-ease);
 }
+body.drawer-open .sidebar-backdrop { opacity: 1; }
 
 /* ============================================
-   平板 / 手机：抽屉式侧边栏（替换原先的 60px 纯图标条）
-   断点取 Bootstrap lg，与 dashboard 的 col-lg-* 栅格堆叠对齐。
+   平板 / 手机：抽屉式侧边栏
    ============================================ */
 @media (max-width: 991.98px) {
     .sidebar {
-        width: 260px;
+        width: var(--pa-sidebar-w-mobile);
         transform: translateX(-100%);
         visibility: hidden;
-        transition: transform 0.25s ease, visibility 0.25s ease;
-        box-shadow: 2px 0 16px rgba(0,0,0,0.2);
+        transition: transform var(--pa-dur-slow) var(--pa-ease),
+                    visibility 0s linear var(--pa-dur-slow);
+        box-shadow: var(--pa-shadow-lg);
     }
     body.drawer-open .sidebar {
         transform: translateX(0);
         visibility: visible;
+        transition: transform var(--pa-dur-slow) var(--pa-ease);
     }
     body.drawer-open .sidebar-backdrop { display: block; }
-
-    /* 滚动锁必须留在这个 media query 内部：写在外面的话，
-       手机打开抽屉后旋转/放大到桌面宽度会残留，导致页面永久无法滚动。 */
     body.drawer-open { overflow: hidden; }
 
-    .main-content { margin-left: 0; padding: 12px; }
+    .main-content {
+        margin-left: 0;
+        padding: var(--pa-space-4);
+    }
     .drawer-toggle { display: inline-flex; }
-    .topbar { padding: 10px 14px; }
+    .topbar {
+        padding: var(--pa-space-3) var(--pa-space-4);
+        margin-bottom: var(--pa-space-3);
+    }
+    .topbar-title { font-size: 16px; }
+}
+
+@media (max-width: 575.98px) {
+    .main-content { padding: var(--pa-space-3); }
+    .topbar { border-radius: var(--pa-radius); }
+}
+
+/* ============================================
+   通用工具类
+   ============================================ */
+.pa-empty {
+    text-align: center;
+    color: var(--pa-text-muted);
+    padding: var(--pa-space-12) var(--pa-space-4);
+    font-size: 14px;
+}
+.pa-empty i {
+    font-size: 40px;
+    color: var(--pa-text-faint);
+    margin-bottom: var(--pa-space-3);
+    display: block;
+}
+
+/* —— 通用卡片：白底 + 1px 边框 + 极克制阴影 —— */
+.pa-card {
+    background: var(--pa-surface);
+    border: 1px solid var(--pa-border);
+    border-radius: var(--pa-radius-lg);
+    box-shadow: var(--pa-shadow-sm);
+    transition: box-shadow var(--pa-dur) var(--pa-ease),
+                transform var(--pa-dur) var(--pa-ease);
+}
+.pa-card-hover:hover {
+    box-shadow: var(--pa-shadow);
+    transform: translateY(-1px);
+}
+
+/* —— 徽章 / 标签 —— */
+.pa-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    border-radius: var(--pa-radius-pill);
+    background: var(--pa-bg-mute);
+    color: var(--pa-text-soft);
+}
+.pa-badge.pa-badge-primary { background: var(--pa-primary-soft); color: var(--pa-primary-700); }
+.pa-badge.pa-badge-success { background: var(--pa-success-soft); color: var(--pa-success); }
+.pa-badge.pa-badge-warning { background: var(--pa-warning-soft); color: var(--pa-warning); }
+.pa-badge.pa-badge-danger { background: var(--pa-danger-soft); color: var(--pa-danger); }
+
+/* 可访问性：尊重用户的动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }

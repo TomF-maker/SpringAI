@@ -8,12 +8,14 @@ import com.example.springai.dto.DocumentUploadDTO;
 import com.example.springai.dto.StatisticsDTO;
 import com.example.springai.entity.KbDocument;
 import com.example.springai.entity.KbDocumentLog;
+import com.example.springai.entity.SysCompany;
 import com.example.springai.entity.SysDepartment;
 import com.example.springai.entity.SysUser;
 import com.example.springai.mapper.KbDocumentLogMapper;
 import com.example.springai.mapper.KbDocumentMapper;
 import com.example.springai.mapper.SysDepartmentMapper;
 import com.example.springai.mapper.SysUserMapper;
+import com.example.springai.mapper.SysCompanyMapper;
 import com.example.springai.service.DocumentServiceI;
 import com.example.springai.service.ExcelDocumentServiceI;
 import com.example.springai.service.OcrServiceI;
@@ -96,6 +98,9 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
     @Autowired
     private SysDepartmentMapper departmentMapper;
+
+    @Autowired
+    private SysCompanyMapper companyMapper;
 
     @jakarta.annotation.Resource
     private RestTemplate restTemplate;
@@ -222,6 +227,8 @@ public class DocumentServiceImpl implements DocumentServiceI {
         doc.setFileType(getFileExtension(fileName));
         doc.setUploaderId(currentUserId);
         doc.setDepartmentId(metadata.getDepartmentId());
+        // 客户公司隔离：null = 通用方法论（所有客户可见）
+        doc.setClientId(metadata.getClientId());
         doc.setVisibleType(metadata.getVisibleType() != null ? metadata.getVisibleType() : 1);
         doc.setIsPublic(metadata.getIsPublic() != null && metadata.getIsPublic() ? 1 : 0);
         doc.setStatus(0); // 待处理
@@ -313,6 +320,8 @@ public class DocumentServiceImpl implements DocumentServiceI {
         doc.setFileType(getFileExtension(fileName));
         doc.setUploaderId(currentUserId);
         doc.setDepartmentId(metadata.getDepartmentId());
+        // 客户公司隔离：null = 通用方法论（所有客户可见）
+        doc.setClientId(metadata.getClientId());
         doc.setVisibleType(metadata.getVisibleType() != null ? metadata.getVisibleType() : 1);
         doc.setIsPublic(metadata.getIsPublic() != null && metadata.getIsPublic() ? 1 : 0);
         doc.setStatus(0);
@@ -346,7 +355,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
     // ==================== 文档列表 ====================
     @Override
-    public Page<DocumentListDTO> listDocuments(int page, int size, String keyword, Long departmentId, Long currentUserId) {
+    public Page<DocumentListDTO> listDocuments(int page, int size, String keyword, Long departmentId, Long clientId, Long currentUserId) {
         SysUser user = userMapper.selectById(currentUserId);
         if (user == null) throw new RuntimeException("用户不存在");
 
@@ -358,12 +367,29 @@ public class DocumentServiceImpl implements DocumentServiceI {
             wrapper.eq("department_id", departmentId);
         }
 
-        // 权限过滤
-        if (user.getIsAdmin() != 1) {
+        // 权限过滤 + 客户公司隔离
+        //   管理员      → 看所有（可按 clientId 参数筛到某家客户的专属 + 通用）
+        //   内部用户    → 伯伯咨询顾问，能看所有客户的文档，保留原有部门/公开可见性
+        //   外部用户    → 客户公司员工，只能看本公司的全部文档 + 通用且公开的文档
+        //   （A 客户付费做的方案，B 客户绝不能看到 —— 咨询行业铁律）
+        if (user.getIsAdmin() == 1) {
+            if (clientId != null) {
+                wrapper.and(w -> w.isNull("client_id").or().eq("client_id", clientId));
+            }
+            // clientId == null：管理员看所有，不加限制
+        } else if (user.getUserType() != null && user.getUserType() == 1) {
+            // 伯伯咨询顾问（内部用户）：能看所有客户的文档，保留原有部门/公开可见性
             wrapper.and(w -> w
                     .eq("uploader_id", currentUserId)
                     .or().eq("department_id", user.getDepartmentId())
                     .or().eq("is_public", 1)
+            );
+        } else {
+            // 客户公司员工（外部用户）：client_id 隔离
+            // 看自己公司的全部文档 + 通用且公开的文档
+            wrapper.and(w -> w
+                    .eq("client_id", user.getCompanyId())
+                    .or(q -> q.isNull("client_id").eq("is_public", 1))
             );
         }
         wrapper.orderByDesc("created_at");
@@ -381,6 +407,11 @@ public class DocumentServiceImpl implements DocumentServiceI {
             // 部门名称
             SysDepartment dept = departmentMapper.selectById(doc.getDepartmentId());
             if (dept != null) dto.setDepartmentName(dept.getDeptName());
+            // 客户公司名（null=通用方法论）
+            if (doc.getClientId() != null) {
+                SysCompany company = companyMapper.selectById(doc.getClientId());
+                if (company != null) dto.setClientName(company.getCompanyName());
+            }
             // 可见性文本
             String visibleText;
             switch (doc.getVisibleType()) {
@@ -607,6 +638,26 @@ public class DocumentServiceImpl implements DocumentServiceI {
     private boolean hasPermission(KbDocument doc, Long userId) {
         SysUser user = userMapper.selectById(userId);
         if (user.getIsAdmin() == 1) return true;
+
+        // 客户公司隔离：外部用户（客户公司员工）只能下载本公司 + 通用公开的文档
+        // A 客户的付费方案，B 客户绝不能下载 —— 与检索侧 buildQdrantFilter 同一套规则
+        boolean isInternal = user.getUserType() == null || user.getUserType() == 1;
+        if (!isInternal) {
+            // 外部用户：先过 client_id 闸门
+            if (doc.getClientId() != null && !doc.getClientId().equals(user.getCompanyId())) {
+                // 文档属于其他客户公司 → 拒绝
+                return false;
+            }
+            // 通用文档（clientId == null）或本公司文档 → 继续按可见性判定
+            if (doc.getClientId() != null && doc.getClientId().equals(user.getCompanyId())) {
+                // 本公司专属文档，员工可直接下载
+                return true;
+            }
+            // 通用文档：仅公开可下载
+            return doc.getIsPublic() == 1;
+        }
+
+        // 内部用户（伯伯咨询顾问）：保留原有可见性逻辑，跨所有客户
         if (doc.getIsPublic() == 1) return true;
         if (doc.getUploaderId().equals(userId)) return true;
         if (doc.getDepartmentId() != null && doc.getDepartmentId().equals(user.getDepartmentId())) {
@@ -842,6 +893,10 @@ public class DocumentServiceImpl implements DocumentServiceI {
             }
             // 存入是否公开
             metadata.put("is_public", doc.getIsPublic() != null ? doc.getIsPublic().toString() : "0");
+            // 客户公司隔离。null（通用方法论）用 "0" 标记 —— Qdrant 对缺失 key
+            // 做 match 命中不到，必须显式存一个值才能在过滤时取到。
+            // 检索时由 RagServiceImpl 按 "client_id == 0 OR client_id == 自己公司" 过滤。
+            metadata.put("client_id", doc.getClientId() != null ? doc.getClientId().toString() : "0");
             documents.add(new Document(chunks.get(i), metadata));
         }
         return documents;

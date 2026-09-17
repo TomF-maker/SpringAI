@@ -3,6 +3,7 @@ package com.example.springai.service.impl;
 import com.example.springai.common.ErrorCode;
 import com.example.springai.entity.Conversation;
 import com.example.springai.entity.Message;
+import com.example.springai.entity.SourceRef;
 import com.example.springai.exception.BizException;
 import com.example.springai.repository.ConversationRepository;
 import com.example.springai.service.ConversationServiceI;
@@ -24,8 +25,14 @@ public class ConversationServiceImpl implements ConversationServiceI {
     private static final String NOT_FOUND_MESSAGE = "会话不存在";
 
     public Conversation createConversation(Long userId, String firstQuestion) {
+        return createConversation(userId, firstQuestion, null);
+    }
+
+    @Override
+    public Conversation createConversation(Long userId, String firstQuestion, Long clientId) {
         Conversation conv = new Conversation();
         conv.setUserId(userId);
+        conv.setClientId(clientId);
         conv.setTitle(generateTitle(firstQuestion));
         conv.setCreatedAt(LocalDateTime.now());
         conv.setUpdatedAt(LocalDateTime.now());
@@ -34,6 +41,12 @@ public class ConversationServiceImpl implements ConversationServiceI {
 
     @Override
     public Conversation addMessage(String conversationId, Long userId, String role, String content) {
+        return addMessage(conversationId, userId, role, content, null);
+    }
+
+    @Override
+    public Conversation addMessage(String conversationId, Long userId, String role, String content,
+                                   List<SourceRef> sources) {
         Conversation conv = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE));
         if (!isOwner(conv, userId)) {
@@ -41,7 +54,8 @@ public class ConversationServiceImpl implements ConversationServiceI {
                     conversationId, userId, conv.getUserId());
             throw new BizException(ErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE);
         }
-        conv.getMessages().add(new Message(role, content, LocalDateTime.now()));
+        // sources 随 assistant 消息持久化 —— 历史记录重进时仍能渲染「来源」展开区
+        conv.getMessages().add(new Message(role, content, LocalDateTime.now(), sources));
         conv.setUpdatedAt(LocalDateTime.now());
         return conversationRepository.save(conv);
     }

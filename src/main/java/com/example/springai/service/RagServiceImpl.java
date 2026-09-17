@@ -2,6 +2,7 @@ package com.example.springai.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.springai.entity.KbQuestionLog;
+import com.example.springai.entity.SourceRef;
 import com.example.springai.entity.SysUser;
 import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.tool.ToolExecutor;
@@ -155,7 +156,64 @@ public class RagServiceImpl implements RagServiceI {
                 relevantDocs.size(), null, clientIp, elapsed);
         log.info("✅ RAG问答完成，耗时: {}ms", elapsed);
 
-        return new Answer(logId, answer);
+        // 答案来源标注：把检索命中的片段原样带出去，前端在回答末尾展示「来源：《XX 报告》」。
+        // 兜底/本地知识库/工具调用等无检索路径不带 sources（走旧的 Answer(logId, answer) 构造）。
+        List<SourceRef> sources = toSourceRefs(relevantDocs);
+        return new Answer(logId, answer, sources);
+    }
+
+    /**
+     * 把检索到的 Document 列表转成来源标注。
+     *
+     * <p>documentTitle 当前取 payload 里的 source（上传文件名）——
+     * 咨询场景下文件名通常就是有意义的标题（如"企业管理咨询方法论.pdf"），
+     * 零额外查表。后续若需展示更准确的 kb_document.title，再注入 mapper 批量查。
+     *
+     * <p>chunkText 截断到 300 字，前端展开看片段够用又不至于刷屏。
+     */
+    private List<SourceRef> toSourceRefs(List<Document> docs) {
+        if (docs == null || docs.isEmpty()) {
+            return null;
+        }
+        List<SourceRef> refs = new ArrayList<>(docs.size());
+        for (Document d : docs) {
+            Map<String, Object> md = d.getMetadata();
+            Long docId = toLong(md.get("document_id"));
+            String title = toStr(md.get("source"), "未知文档");
+            Double score = toDouble(md.get("score"));
+            String chunk = d.getText();
+            if (chunk != null && chunk.length() > 300) {
+                chunk = chunk.substring(0, 300) + "…";
+            }
+            refs.add(new SourceRef(docId, title, chunk, score));
+        }
+        return refs;
+    }
+
+    private static Long toLong(Object o) {
+        if (o == null) return null;
+        if (o instanceof Number) return ((Number) o).longValue();
+        try {
+            return Long.parseLong(o.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Double toDouble(Object o) {
+        if (o == null) return null;
+        if (o instanceof Number) return ((Number) o).doubleValue();
+        try {
+            return Double.parseDouble(o.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String toStr(Object o, String fallback) {
+        if (o == null) return fallback;
+        String s = o.toString();
+        return s.isEmpty() ? fallback : s;
     }
 
     /**
@@ -215,10 +273,13 @@ public class RagServiceImpl implements RagServiceI {
         final Long logId = questionLogService.record(question, userId, departmentId, convId,
                 KbQuestionLog.HIT_DOC, relevantDocs.size(), null, clientIp);
 
+        // 答案来源标注：流式 meta 帧会带上 sources，前端在回答流之前就拿到来源信息
+        List<SourceRef> sources = toSourceRefs(relevantDocs);
+
         // 4. 流式调用大模型
         return new AnswerStream(logId, withTelemetry(
                 chatClientBuilder.build().prompt().user(prompt).stream().content(),
-                logId, startTime));
+                logId, startTime), sources);
     }
 
     /**
@@ -480,6 +541,10 @@ public class RagServiceImpl implements RagServiceI {
                     continue;
                 }
 
+                // 把相似度分塞进 metadata —— 答案来源标注要展示给客户看「这条有多相关」。
+                // 用 double 装箱避免后面 toDouble 处理 Float/Double 两种类型。
+                metadata.put("score", (double) scoredPoint.getScore());
+
                 documents.add(new Document(content, metadata));
             }
 
@@ -543,7 +608,8 @@ public class RagServiceImpl implements RagServiceI {
 
 
     private Common.Filter buildQdrantFilter(SysUser user) {
-        // 匿名（未登录）：仅公开文档。与"外部用户"同一条规则。
+        // 匿名（未登录）：仅公开文档。
+        // 匿名没有公司归属，看不到任何客户的专属内容，只能看 is_public=1 的公开方法论。
         // 必须放在最前面判空 —— 下面第一行就是 user.getIsAdmin()，传 null 会直接 NPE。
         if (user == null) {
             return publicOnlyFilter();
@@ -554,46 +620,105 @@ public class RagServiceImpl implements RagServiceI {
             return null;
         }
 
-        // 外部用户：仅公开文档
-        if (user.getUserType() != null && user.getUserType() == 2) {
-            return publicOnlyFilter();
+        // 内部用户（userType=1 或 null，伯伯咨询顾问）：能看所有客户的文档
+        // 保留原有部门/公开可见性 —— 不做 client_id 限制（他们是做咨询的人，要看所有客户的内容）
+        if (user.getUserType() == null || user.getUserType() == 1) {
+            return internalUserFilter(user);
         }
 
-        // 内部用户：本部门文档 + 公开文档
+        // 外部用户（userType=2，客户公司员工）：客户隔离
+        // 看自己公司的全部文档 + 公开文档
+        // A 客户的内部文档，B 客户绝不能搜到 —— 咨询行业铁律
+        return clientIsolatedFilter(user.getCompanyId());
+    }
+
+    /**
+     * 内部用户（伯伯咨询顾问）的检索过滤：本部门文档 + 公开文档，跨所有客户。
+     * 与原有逻辑一致，不做 client_id 限制 —— 咨询顾问需要能看到所有客户的内容。
+     */
+    private Common.Filter internalUserFilter(SysUser user) {
         Long departmentId = user.getDepartmentId();
-        if (departmentId != null && departmentId > 0) {
-            // OR 条件
-            // 条件1: department_id == 用户部门
-            Common.FieldCondition deptField = Common.FieldCondition.newBuilder()
-                    .setKey("department_id")
-                    .setMatch(Common.Match.newBuilder()
-                            .setKeyword(departmentId.toString())
-                            .build())
-                    .build();
-            Common.Condition deptCondition = Common.Condition.newBuilder()
-                    .setField(deptField)
-                    .build();
-
-            // 条件2: is_public == 1
-            Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
-                    .setKey("is_public")
-                    .setMatch(Common.Match.newBuilder()
-                            .setKeyword("1")
-                            .build())
-                    .build();
-            Common.Condition pubCondition = Common.Condition.newBuilder()
-                    .setField(pubField)
-                    .build();
-
-            // 构建 OR: should 至少一个匹配
-            return Common.Filter.newBuilder()
-                    .addShould(deptCondition)
-                    .addShould(pubCondition)
-                    .build();
-        } else {
-            // 用户无部门，仅公开文档
+        if (departmentId == null || departmentId <= 0) {
+            // 伯伯员工无部门：仅公开文档
             return publicOnlyFilter();
         }
+        // OR: department_id == 用户部门 OR is_public == 1
+        Common.FieldCondition deptField = Common.FieldCondition.newBuilder()
+                .setKey("department_id")
+                .setMatch(Common.Match.newBuilder()
+                        .setKeyword(departmentId.toString())
+                        .build())
+                .build();
+        Common.Condition deptCondition = Common.Condition.newBuilder()
+                .setField(deptField)
+                .build();
+
+        Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
+                .setKey("is_public")
+                .setMatch(Common.Match.newBuilder()
+                        .setKeyword("1")
+                        .build())
+                .build();
+        Common.Condition pubCondition = Common.Condition.newBuilder()
+                .setField(pubField)
+                .build();
+
+        return Common.Filter.newBuilder()
+                .addShould(deptCondition)
+                .addShould(pubCondition)
+                .build();
+    }
+
+    /**
+     * 客户公司员工的检索过滤（咨询隔离核心）。
+     *
+     * <p>能检索到的范围：
+     * <ul>
+     *   <li><b>自己公司的专属文档</b>（{@code client_id == 自己公司}）—— 不论公开/内部，
+     *       本公司员工都能看到（这是他们付费做出来的方案）。</li>
+     *   <li><b>公开文档</b>（{@code is_public == 1}）—— 含通用方法论和各客户的公开内容。</li>
+     * </ul>
+     *
+     * <p><b>注意</b>：当前用 {@code is_public == 1} 而不是 {@code client_id == "0" AND is_public == 1}
+     * 作为公开分支，是为了兼容存量数据 —— 迁移前入库的向量 payload 里没有 client_id 这个 key，
+     * 严格按 client_id 过滤会把它们全部漏掉，客户员工会突然搜不到任何旧文档。
+     * 等存量文档全部重新向量化（带上 client_id）之后，可以把这里收紧为
+     * {@code client_id == "0" AND is_public == "1"}，彻底杜绝"A 客户的公开文档被 B 客户看到"。
+     *
+     * <p>用户没有公司归属（companyId 为 null）时，退化为仅公开文档 —— 同匿名。
+     */
+    private Common.Filter clientIsolatedFilter(Long companyId) {
+        if (companyId == null) {
+            return publicOnlyFilter();
+        }
+
+        // 条件1: client_id == 自己公司
+        Common.FieldCondition ownClientField = Common.FieldCondition.newBuilder()
+                .setKey("client_id")
+                .setMatch(Common.Match.newBuilder()
+                        .setKeyword(companyId.toString())
+                        .build())
+                .build();
+        Common.Condition ownClientCond = Common.Condition.newBuilder()
+                .setField(ownClientField)
+                .build();
+
+        // 条件2: is_public == 1（兼容存量数据的宽松公开分支）
+        Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
+                .setKey("is_public")
+                .setMatch(Common.Match.newBuilder()
+                        .setKeyword("1")
+                        .build())
+                .build();
+        Common.Condition pubCond = Common.Condition.newBuilder()
+                .setField(pubField)
+                .build();
+
+        // OR: 自己公司 OR 公开
+        return Common.Filter.newBuilder()
+                .addShould(ownClientCond)
+                .addShould(pubCond)
+                .build();
     }
 
     /**

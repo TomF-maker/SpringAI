@@ -1,6 +1,7 @@
 package com.example.springai.service;
 
 import com.example.springai.entity.Conversation;
+import com.example.springai.entity.SourceRef;
 
 import java.util.List;
 
@@ -21,11 +22,29 @@ public interface ConversationServiceI {
     Conversation createConversation(Long userId, String firstQuestion);
 
     /**
+     * 创建会话并标记客户归属。
+     *
+     * @param clientId 客户公司 id（{@code sys_company.id}）；匿名或无公司为 null。
+     *                  P0 阶段会话列表仍按 userId 隔离，本字段为 P1 客户管理员后台铺路。
+     */
+    Conversation createConversation(Long userId, String firstQuestion, Long clientId);
+
+    /**
      * 追加一条消息。会校验会话归属。
      *
      * @throws com.example.springai.exception.BizException 会话不存在或不属于该用户
      */
     Conversation addMessage(String conversationId, Long userId, String role, String content);
+
+    /**
+     * 追加一条带答案来源标注的 assistant 消息。
+     *
+     * <p>来源标注随消息一起持久化，用户从历史记录点进去仍能看到「来源」展开区。
+     * user 消息不传 sources（传 null 走上面的重载即可）。
+     *
+     * @param sources 检索命中的文档片段来源标注；无检索路径（兜底/工具调用）传 null
+     */
+    Conversation addMessage(String conversationId, Long userId, String role, String content, List<SourceRef> sources);
 
     List<Conversation> getUserConversations(Long userId);
 

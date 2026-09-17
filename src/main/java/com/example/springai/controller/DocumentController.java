@@ -8,7 +8,9 @@ import com.example.springai.dto.DocumentListDTO;
 import com.example.springai.dto.DocumentUploadDTO;
 import com.example.springai.dto.UrlUploadRequest;
 import com.example.springai.entity.KbDocument;
+import com.example.springai.entity.SysCompany;
 import com.example.springai.entity.SysUser;
+import com.example.springai.mapper.SysCompanyMapper;
 import com.example.springai.service.DocumentServiceI;
 import com.example.springai.service.UserServiceI;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +28,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -53,6 +56,9 @@ public class DocumentController {
 
     @Autowired
     private UserServiceI userService;
+
+    @Autowired
+    private SysCompanyMapper companyMapper;
 
     // ==================== 原有上传接口（兼容） ====================
     @PostMapping("/upload")
@@ -85,6 +91,7 @@ public class DocumentController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(required = false) String title,
             @RequestParam Long departmentId,
+            @RequestParam(required = false) Long clientId,
             @RequestParam(defaultValue = "1") Integer visibleType,
             @RequestParam(defaultValue = "false") Boolean isPublic,
             Authentication authentication) {
@@ -94,6 +101,7 @@ public class DocumentController {
         DocumentUploadDTO meta = new DocumentUploadDTO();
         meta.setTitle(title);
         meta.setDepartmentId(departmentId);
+        meta.setClientId(clientId);
         meta.setVisibleType(visibleType);
         meta.setIsPublic(isPublic);
 
@@ -116,6 +124,7 @@ public class DocumentController {
         meta.setDepartmentId(request.getDepartmentId());
         meta.setVisibleType(request.getVisibleType() != null ? request.getVisibleType() : 1);
         meta.setIsPublic(request.getIsPublic() != null ? request.getIsPublic() : false);
+        meta.setClientId(request.getClientId());
 
         try {
             return Response.success(
@@ -133,11 +142,12 @@ public class DocumentController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) Long clientId,
             Authentication authentication) {
 
         SysUser user = currentUser(authentication);
         Page<DocumentListDTO> p =
-                documentService.listDocuments(page, size, keyword, departmentId, user.getId());
+                documentService.listDocuments(page, size, keyword, departmentId, clientId, user.getId());
         return Response.success(PageResult.of(p.getRecords(), p.getTotal(), p.getCurrent(), p.getSize()));
     }
 
@@ -173,6 +183,23 @@ public class DocumentController {
     @GetMapping("/{id}")
     public Response<KbDocument> getDocument(@PathVariable Long id) {
         return Response.success(documentService.getDocumentById(id));
+    }
+
+    // ==================== 客户公司列表（上传表单下拉用） ====================
+    // 返回所有客户公司，供管理员上传文档时选择「所属客户」。
+    // 不分页 —— 客户数 10~50 家，一次全拿过来下拉刚好。
+    @GetMapping("/clients")
+    public Response<List<Map<String, Object>>> listClients() {
+        List<SysCompany> companies = companyMapper.selectList(null);
+        List<Map<String, Object>> list = companies.stream()
+                .map(c -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", c.getId());
+                    m.put("companyName", c.getCompanyName());
+                    return m;
+                })
+                .collect(java.util.stream.Collectors.toList());
+        return Response.success(list);
     }
 
     /** 与 service 层保持一致的白名单，避免两个地方各写一份、时间一长就对不上。 */

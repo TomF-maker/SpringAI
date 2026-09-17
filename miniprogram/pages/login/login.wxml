@@ -1,0 +1,46 @@
+<!-- pages/login/login.wxml - 登录页
+     小程序登录的第一阶段只支持账号密码。
+     异地登录会返回 requirePhoneVerify=true，目前小程序端没有 SMS 流程 ——
+     直接提示用户用网页端完成手机验证后再来。后续接入 SMS 时把这一段改成表单即可。 -->
+<view class="login-page">
+  <view class="brand-mark">
+    <text class="brand-emoji">🛒</text>
+  </view>
+  <view class="title">采购智能助手</view>
+  <view class="subtitle">企业采购知识库 · 智能问答</view>
+
+  <view class="form-card">
+    <view class="field">
+      <text class="pa-label">用户名 / 邮箱</text>
+      <input class="pa-input"
+             placeholder="请输入用户名或邮箱"
+             value="{{username}}"
+             bindinput="onUsernameInput"
+             maxlength="64" />
+    </view>
+
+    <view class="field">
+      <text class="pa-label">密码</text>
+      <input class="pa-input"
+             placeholder="请输入密码"
+             password
+             value="{{password}}"
+             bindinput="onPasswordInput"
+             maxlength="64" />
+    </view>
+
+    <view wx:if="{{error}}" class="error-box">{{error}}</view>
+
+    <button class="pa-btn submit-btn"
+            bindtap="doLogin"
+            loading="{{loading}}"
+            disabled="{{loading || !username || !password}}">
+      {{loading ? '登录中…' : '登 录'}}
+    </button>
+
+    <view class="footer-tip">
+      未登录也可在「问答」页作为游客试用（按 IP 每日限额）
+    </view>
+    <view class="footer-link" bindtap="goChatAsGuest">先去试试 →</view>
+  </view>
+</view>

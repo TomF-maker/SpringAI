@@ -1,0 +1,4 @@
+{
+  "desc": "采购智能助手小程序的 sitemap 配置。具体可查阅小程序 sitemap 文档：https://developers.weixin.qq.com/miniprogram/dev/reference/configuration/sitemap.html",
+  "rules": [{ "action": "allow", "page": "*" }]
+}

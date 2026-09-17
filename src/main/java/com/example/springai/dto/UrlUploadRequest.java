@@ -23,6 +23,11 @@ public class UrlUploadRequest {
     private Long departmentId;
 
     /**
+     * 所属客户公司（sys_company.id）；null = 通用方法论，所有客户可见
+     */
+    private Long clientId;
+
+    /**
      * 可见性类型：1=本部门，2=全公司，3=指定部门（默认1）
      */
     private Integer visibleType = 1;

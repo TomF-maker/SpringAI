@@ -1,0 +1,101 @@
+<!-- pages/chat/chat.wxml - 智能问答页
+     走非流式 /api/rag/chat（按 doc/微信小程序适配方案.md 阶段 1）。
+     优点：零后端改造即可跑通主链路；缺点：无逐字效果，用户需等完整回答。 -->
+<view class="chat-page">
+
+  <!-- 配额提示条：游客与「已登录非会员」共用，文案由 quota 数据驱动 -->
+  <view wx:if="{{quota.show}}" class="quota-banner {{quota.warning ? 'quota-warning' : ''}}">
+    <text wx:if="{{quota.anonymous}}">游客模式 · 剩余 {{quota.remaining}}/{{quota.limit}} 次</text>
+    <text wx:elif="{{quota.member}}">会员 · 不限次数</text>
+    <text wx:else>每日免费 {{quota.remaining}}/{{quota.limit}} 次</text>
+    <text wx:if="{{quota.anonymous}}" class="quota-cta" bindtap="goLogin">登录后不限次数</text>
+  </view>
+
+  <!-- 会话列表区 -->
+  <scroll-view class="msg-list"
+               scroll-y
+               scroll-into-view="{{scrollAnchor}}"
+               scroll-with-animation
+               enhanced
+               show-scrollbar="{{false}}">
+    <view id="msg-top" style="height:8rpx;"></view>
+
+    <!-- 欢迎 / 空状态 -->
+    <view wx:if="{{messages.length === 0}}" class="welcome">
+      <view class="welcome-mark">🛒</view>
+      <view class="welcome-title">您好，我是采购智能助手</view>
+      <view class="welcome-sub">支持企业文档问答、天气与新闻查询</view>
+      <view class="suggest-list">
+        <view class="suggest-item" bindtap="useSuggest" data-q="深圳天气怎么样？">
+          <text>🌤 深圳天气怎么样？</text>
+        </view>
+        <view class="suggest-item" bindtap="useSuggest" data-q="最近AI有什么新闻？">
+          <text>📰 最近AI有什么新闻？</text>
+        </view>
+        <view class="suggest-item" bindtap="useSuggest" data-q="采购流程是什么？">
+          <text>📄 采购流程是什么？</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 消息气泡 / 系统提示（单次遍历，按时间穿插） -->
+    <block wx:for="{{messages}}" wx:key="id">
+      <view wx:if="{{item.role !== 'system'}}" class="msg-row {{item.role}}">
+        <view class="msg-bubble {{item.role}}">
+          <view class="msg-tag">{{item.role === 'user' ? '我' : '助手'}}</view>
+          <view class="msg-content">{{item.text}}</view>
+          <!-- 答案来源标注：只在 AI 回答且有命中片段时渲染 -->
+          <view wx:if="{{item.role === 'ai' && item.sources && item.sources.length}}" class="msg-sources">
+            <view class="src-header {{item.srcExpanded ? 'src-expanded' : ''}}"
+                  bindtap="toggleSources" data-id="{{item.id}}">
+              来源（{{item.sources.length}}）
+            </view>
+            <view wx:if="{{item.srcExpanded}}" class="src-list">
+              <view wx:for="{{item.sources}}" wx:for-item="src" wx:for-index="sIdx" wx:key="sIdx" class="src-item">
+                <view class="src-title">《{{src.documentTitle || '未知文档'}}》<text wx:if="{{src.scoreText}}" class="src-score">相关度 {{src.scoreText}}</text></view>
+                <view wx:if="{{src.chunkText}}" class="src-chunk">{{src.chunkText}}</view>
+              </view>
+            </view>
+          </view>
+          <view class="msg-time">{{item.time}}</view>
+        </view>
+      </view>
+      <view wx:else class="msg-system">
+        {{item.text}} · {{item.time}}
+      </view>
+    </block>
+
+    <!-- 思考中占位 -->
+    <view wx:if="{{thinking}}" class="msg-row ai">
+      <view class="msg-bubble ai thinking-bubble">
+        <view class="msg-tag">助手</view>
+        <view class="thinking">
+          <view class="dot"></view>
+          <view class="dot"></view>
+          <view class="dot"></view>
+        </view>
+      </view>
+    </view>
+
+    <view id="msg-bottom" style="height:8rpx;"></view>
+  </scroll-view>
+
+  <!-- 输入区 -->
+  <view class="input-area">
+    <input class="msg-input"
+           placeholder="输入您的问题…"
+           value="{{draft}}"
+           bindinput="onInput"
+           bindconfirm="onSend"
+           confirm-type="send"
+           confirm-hold
+           adjust-position
+           cursor-spacing="20"
+           disabled="{{thinking}}" />
+    <button class="send-btn {{thinking ? 'send-cancel' : ''}}"
+            bindtap="onSend"
+            disabled="{{!draft && !thinking}}">
+      {{thinking ? '取消' : '发送'}}
+    </button>
+  </view>
+</view>

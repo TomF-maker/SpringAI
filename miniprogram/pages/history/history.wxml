@@ -1,0 +1,40 @@
+<!-- pages/history/history.wxml - 历史会话列表 -->
+<view class="page">
+  <view wx:if="{{!loading && list.length === 0}}" class="pa-empty">
+    <view class="pa-empty-icon">💬</view>
+    还没有提问记录
+    <view style="margin-top: 12rpx;">去「问答」页开始第一次提问</view>
+  </view>
+
+  <view wx:if="{{loading && list.length === 0}}" class="pa-loading">加载中…</view>
+
+  <view class="conv-list">
+    <view wx:for="{{list}}" wx:key="id" class="conv-item" bindtap="openDetail" data-id="{{item.id}}">
+      <view class="conv-title">{{item.title}}</view>
+      <view class="conv-meta">
+        <text>{{item.timeText}}</text>
+        <text class="conv-count">{{item.messageCount}} 条</text>
+      </view>
+      <view class="conv-del" catchtap="onDelete" data-id="{{item.id}}">删除</view>
+    </view>
+  </view>
+
+  <view wx:if="{{!loading && list.length > 0 && !hasMore}}" class="pa-loading">没有更多了</view>
+</view>
+
+<!-- 详情弹层 -->
+<view wx:if="{{detail.show}}" class="detail-mask" bindtap="closeDetail">
+  <view class="detail-panel" catchtap="">
+    <view class="detail-header">
+      <view class="detail-title">{{detail.title}}</view>
+      <view class="detail-close" bindtap="closeDetail">✕</view>
+    </view>
+    <scroll-view class="detail-body" scroll-y>
+      <view wx:for="{{detail.messages}}" wx:key="index" class="d-msg {{item.role}}">
+        <view class="d-tag">{{item.role === 'user' ? '我' : '助手'}}</view>
+        <view class="d-content">{{item.content}}</view>
+      </view>
+      <view wx:if="{{detail.messages.length === 0}}" class="pa-empty">这个会话里没有消息</view>
+    </scroll-view>
+  </view>
+</view>

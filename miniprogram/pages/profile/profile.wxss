@@ -1,0 +1,126 @@
+/* pages/profile/profile.wxss */
+
+.page {
+  min-height: 100vh;
+  padding: 24rpx 28rpx 48rpx;
+  box-sizing: border-box;
+}
+
+.profile-head {
+  background: linear-gradient(135deg, #2b3a67 0%, #3b4f87 60%, #4a5fa5 100%);
+  border-radius: 28rpx;
+  padding: 36rpx 32rpx;
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  color: #fff;
+  margin-bottom: 24rpx;
+  box-shadow: 0 12rpx 32rpx rgba(43, 58, 103, 0.22);
+}
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36rpx;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.head-info { flex: 1; min-width: 0; }
+.head-info .name { font-size: 18px; font-weight: 600; margin-bottom: 6rpx; }
+.head-info .sub { font-size: 12px; opacity: 0.7; }
+
+/* —— 会员卡 —— */
+.member-card {
+  background: linear-gradient(135deg, #fdf3e0 0%, #fff 100%);
+  border: 1rpx solid #f4dca8;
+  border-radius: 24rpx;
+  padding: 28rpx 32rpx;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-bottom: 24rpx;
+}
+.member-card-guest {
+  background: #fafbfd;
+  border-color: #e6e8ee;
+}
+.member-badge {
+  background: linear-gradient(135deg, #b8791a 0%, #e8a13a 100%);
+  color: #fff;
+  padding: 8rpx 18rpx;
+  border-radius: 12rpx;
+  font-size: 12px;
+  font-weight: 600;
+}
+.member-badge-guest { background: #9aa0ab; }
+.member-info { flex: 1; min-width: 0; }
+.member-title { font-size: 14px; font-weight: 600; color: #1f2430; margin-bottom: 6rpx; }
+.member-expire { font-size: 12px; color: #6b7280; }
+.member-points {
+  font-size: 13px;
+  color: #b8791a;
+  font-weight: 600;
+}
+.member-card-guest .member-points { color: #6b7280; }
+
+/* —— 区块标题 —— */
+.section-title {
+  font-size: 12px;
+  color: #9aa0ab;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  margin: 24rpx 0 12rpx 12rpx;
+  text-transform: uppercase;
+}
+
+/* —— 账号信息 —— */
+.info-card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 4rpx 28rpx;
+  box-shadow: 0 2rpx 12rpx rgba(31, 36, 48, 0.05);
+  margin-bottom: 24rpx;
+}
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 0;
+  border-bottom: 1rpx solid #f1f3f5;
+}
+.info-row:last-child { border-bottom: none; }
+.info-label { font-size: 13px; color: #6b7280; flex-shrink: 0; }
+.info-value {
+  font-size: 14px;
+  color: #1f2430;
+  text-align: right;
+  flex: 1;
+  margin-left: 24rpx;
+  word-break: break-all;
+}
+
+/* —— 操作项 —— */
+.action-card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 0 28rpx;
+  box-shadow: 0 2rpx 12rpx rgba(31, 36, 48, 0.05);
+}
+.action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32rpx 0;
+  border-bottom: 1rpx solid #f1f3f5;
+  font-size: 14px;
+  color: #1f2430;
+}
+.action-row:last-child { border-bottom: none; }
+.action-row .arrow { color: #c5cad3; font-size: 18px; }
+.action-row.danger { color: #c33d3d; }
+.action-row.danger .arrow { color: #f5c2c7; }
+.action-row:active { background: #fafbfd; }
