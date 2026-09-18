@@ -18,7 +18,8 @@ public class UrlUploadRequest {
     private String title;
 
     /**
-     * 归属部门ID（必填）
+     * 归属部门ID。**已废弃**：部门维度去掉了（见 doc/商业化方案.md「A2. 去掉部门维度」），
+     * 值不再被使用，落库统一写常量。字段留着只是让既有调用方不用改。
      */
     private Long departmentId;
 
@@ -28,12 +29,13 @@ public class UrlUploadRequest {
     private Long clientId;
 
     /**
-     * 可见性类型：1=本部门，2=全公司，3=指定部门（默认1）
+     * 可见性类型（1=本部门 2=全公司 3=指定部门）。**已废弃**：值不再参与权限判断，
+     * 只为填满 {@code kb_document.visible_type} 这个 NOT NULL 列。留着让既有调用方不用改。
      */
     private Integer visibleType = 1;
 
     /**
-     * 是否公开（默认false）
+     * 是否公开（默认false）：公开=所有客户可见，内部=仅本公司可见
      */
     private Boolean isPublic = false;
 }

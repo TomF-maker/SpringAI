@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### 本地模型权重（临时下载用于对比实验，单个模型 4 GB 起步，绝不能进仓库）###
+_ollama_models/

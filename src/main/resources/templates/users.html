@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+﻿﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
@@ -50,6 +50,9 @@
                 </select>
                 <button class="btn btn-primary" id="searchBtn"><i class="bi bi-search"></i> 搜索</button>
                 <button class="btn btn-outline-secondary" id="resetBtn"><i class="bi bi-arrow-counterclockwise"></i> 重置</button>
+                <div class="ms-auto">
+                    <button class="btn btn-success" id="importBtn"><i class="bi bi-file-earmark-excel"></i> 批量导入</button>
+                </div>
             </div>
 
             <div class="table-responsive">
@@ -60,7 +63,6 @@
                         <th>用户名</th>
                         <th>邮箱</th>
                         <th>姓名</th>
-                        <th>部门</th>
                         <th>角色</th>
                         <th style="width:80px;">状态</th>
                         <th style="width:130px;">注册时间</th>
@@ -68,7 +70,7 @@
                     </tr>
                     </thead>
                     <tbody id="userTableBody">
-                    <tr><td colspan="9" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -159,9 +161,51 @@
     </div>
 </div>
 
+<!-- ===== 批量导入用户（xlsx） ===== -->
+<div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-excel"></i> 批量导入用户</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">导入到客户公司 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="importCompany">
+                        <option value="">请选择</option>
+                    </select>
+                    <small class="text-muted">整批用户都会挂到这家公司下（决定他们能检索到哪些文档）</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">xlsx 文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" id="importFile" accept=".xlsx">
+                    <small class="text-muted">
+                        第 1 行必须是表头。<b>「用户名」列必填</b>，可选「姓名 / 邮箱 / 手机号」。
+                        列的顺序不限，按表头文字识别。
+                    </small>
+                </div>
+                <div class="alert alert-warning py-2" style="font-size:13px;">
+                    初始密码为系统配置的统一口令，导入的账号<b>首次登录后必须修改密码</b>，否则无法使用平台。
+                    邮箱留空时会自动生成一个占位地址（{用户名}@imported.invalid）。
+                </div>
+                <div id="importResult" class="d-none">
+                    <hr>
+                    <div id="importSummary" class="mb-2" style="font-size:13px;font-weight:600;"></div>
+                    <div id="importRows" style="max-height:260px;overflow-y:auto;font-size:12px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button class="btn btn-success" id="submitImportBtn"><i class="bi bi-upload"></i> 开始导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=4"></script>
+<script src="/js/app.js?v=5"></script>
 <script>
     // ================================================================
     // 1. 认证检查
@@ -240,7 +284,7 @@
         } catch (err) {
             console.error('加载用户列表失败:', err);
             document.getElementById('userTableBody').innerHTML =
-                `<tr><td colspan="9" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
+                `<tr><td colspan="8" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
         }
     }
 
@@ -250,7 +294,7 @@
     function renderTable(users) {
         const tbody = document.getElementById('userTableBody');
         if (!users || users.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">📭 暂无用户数据</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">📭 暂无用户数据</td></tr>`;
             return;
         }
 
@@ -263,7 +307,6 @@
             const statusClass = u.status === 1 ? 'active' : 'inactive';
             const statusText = u.status === 1 ? '启用' : '禁用';
             const roleNames = u.roleNames || '无';
-            const dept = u.departmentName || '-';
             const created = u.createdAt ? new Date(u.createdAt).toLocaleString('zh-CN', {
                 month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
             }) : '-';
@@ -278,7 +321,6 @@
                     <td><span class="fw-medium">${esc(u.username)}</span></td>
                     <td><a href="mailto:${esc(u.email)}" class="text-decoration-none">${esc(u.email)}</a></td>
                     <td>${u.realName ? esc(u.realName) : '-'}</td>
-                    <td>${esc(dept)}</td>
                     <td>${esc(roleNames)}</td>
                     <td><span class="user-status ${statusClass}">${statusText}</span></td>
                     <td style="font-size:12px; color:#64748b;">${created}</td>
@@ -460,7 +502,6 @@
             ${row('真实姓名', u.realName ? esc(u.realName) : dash)}
             ${row('邮箱', u.email ? esc(u.email) : dash)}
             ${row('手机号', u.phone ? esc(u.phone) : dash)}
-            ${row('部门', u.departmentName ? esc(u.departmentName) : '<span class="text-muted">未分配</span>')}
             ${row('所属公司', u.companyName ? esc(u.companyName) : '<span class="text-muted">未填写</span>')}
             ${row('统一社会信用代码', credit)}
             ${row('用户类型', userTypeMap[u.userType] || '未知')}
@@ -560,6 +601,7 @@
     // ================================================================
     document.addEventListener('DOMContentLoaded', function() {
         loadUsers(1);
+        loadImportCompanies();   // 批量导入弹窗的客户公司下拉
     });
 
     // ================================================================
@@ -649,6 +691,121 @@
             Swal.fire('❌ 请求失败', err.message, 'error');
         }
     });
+
+    // ================================================================
+    // 13. 批量导入用户（xlsx）
+    //
+    // 整批挂到选定的那家客户公司下 —— 粒度与批量入库文档一致：
+    // 一次选择 = 一批，需要给不同公司开户就分几次导。
+    // ================================================================
+    let importModalInstance = null;
+
+    document.getElementById('importBtn').addEventListener('click', function () {
+        if (!importModalInstance) {
+            importModalInstance = new bootstrap.Modal(document.getElementById('importModal'));
+        }
+        // 每次打开都清掉上一次的结果，避免被误读成这一次的
+        document.getElementById('importResult').classList.add('d-none');
+        document.getElementById('importRows').innerHTML = '';
+        document.getElementById('importFile').value = '';
+        importModalInstance.show();
+    });
+
+    // 客户公司下拉。复用文档管理的 /api/documents/clients ——
+    // 它返回的就是 {id, companyName} 且同样只对管理员开放，
+    // 没必要为了一个下拉再开一个语义重复的接口。
+    async function loadImportCompanies() {
+        try {
+            const resp = await fetch('/api/documents/clients');
+            const data = await resp.json();
+            if (!data.success) return;
+            const sel = document.getElementById('importCompany');
+            let html = '<option value="">请选择</option>';
+            (data.data || []).forEach(c => {
+                html += `<option value="${c.id}">${esc(c.companyName)}</option>`;
+            });
+            sel.innerHTML = html;
+        } catch (err) {
+            console.error('加载客户公司列表失败', err);
+        }
+    }
+
+    document.getElementById('submitImportBtn').addEventListener('click', async function () {
+        const companyId = document.getElementById('importCompany').value;
+        const fileInput = document.getElementById('importFile');
+        const file = fileInput.files && fileInput.files[0];
+
+        if (!companyId) { Swal.fire('请选择要导入到的客户公司', '', 'warning'); return; }
+        if (!file) { Swal.fire('请选择 xlsx 文件', '', 'warning'); return; }
+        if (!/\.xlsx$/i.test(file.name)) {
+            Swal.fire('格式不对', '只支持 .xlsx（老版 .xls 请先另存为 xlsx）', 'warning');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('companyId', companyId);
+
+        this.disabled = true;
+        this.textContent = '导入中…';
+        try {
+            const resp = await fetch('/api/users/import', { method: 'POST', body: formData });
+            const env = await resp.json();
+            if (!env.success) {
+                Swal.fire('❌ 导入失败', env.errMessage || '未知错误', 'error');
+                return;
+            }
+            renderImportResult(env.data);
+            loadUsers(currentPage);   // 成功的那些立刻出现在列表里
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-upload"></i> 开始导入';
+        }
+    });
+
+    /**
+     * 渲染逐行结果。
+     *
+     * <p>行号刻意用服务端给的 Excel 行号（含表头），这样管理员能直接对着
+     * 表格左侧的数字定位到是哪一行 —— 只给"第 3 条失败"他得自己数。
+     */
+    function renderImportResult(result) {
+        const box = document.getElementById('importResult');
+        const summary = document.getElementById('importSummary');
+        const rowsBox = document.getElementById('importRows');
+        box.classList.remove('d-none');
+
+        if (result.fatal) {
+            summary.textContent = '文件无法处理';
+            rowsBox.innerHTML = `<div class="text-danger">${esc(result.message || '')}</div>`;
+            return;
+        }
+
+        summary.innerHTML = `共 ${result.total} 行：
+            <span style="color:#1EA672;">成功 ${result.succeeded}</span> /
+            <span style="color:#D6483D;">失败 ${result.failed}</span>`
+            + (result.message ? ` <span class="text-muted">（${esc(result.message)}）</span>` : '');
+
+        if (!result.rows || !result.rows.length) {
+            rowsBox.innerHTML = '<div class="text-muted">表格里没有数据行</div>';
+            return;
+        }
+
+        rowsBox.innerHTML = result.rows.map(r => {
+            const ok = r.state === 'OK';
+            return `<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px dashed #E5E7EB;">
+                <span style="flex:0 0 56px;color:#8898AA;">第 ${r.rowNum} 行</span>
+                <span style="flex:1;">
+                    <b>${esc(r.username || '(空)')}</b>
+                    ${r.realName ? ' · ' + esc(r.realName) : ''}
+                    ${r.message ? `<span style="display:block;font-size:11px;color:${ok ? '#8898AA' : '#D6483D'};">${esc(r.message)}</span>` : ''}
+                </span>
+                <span style="flex:0 0 44px;text-align:right;font-weight:600;color:${ok ? '#1EA672' : '#D6483D'};">${ok ? '成功' : '失败'}</span>
+            </div>`;
+        }).join('');
+    }
 </script>
 
 </body>

@@ -307,6 +307,11 @@ body.is-authed [data-auth-only] { display: block; }
 [data-admin-only] { display: none; }
 body.is-admin [data-admin-only] { display: block; }
 
+/* 仅客户公司管理员可见的菜单项（外部用户 + 管理员）。
+   注意它与 is-admin 互斥：客户管理员看到的是"本公司看板"，不是内部那套管理菜单 */
+[data-client-admin-only] { display: none; }
+body.is-client-admin [data-client-admin-only] { display: block; }
+
 /* ============================================
    顶栏 —— 白底卡片 + 1px 边框
    ============================================ */

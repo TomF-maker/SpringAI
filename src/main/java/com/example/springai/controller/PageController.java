@@ -59,19 +59,38 @@ public class PageController {
         return "documents";
     }
 
-    @GetMapping("/departments")
-    public String departments() {
-        return "departments";
-    }
-
     @GetMapping("/profile")
     public String profile() {
         return "profile";
     }
 
+    /**
+     * 修改初始密码（xlsx 批量导入的账号首次登录必须先来这里）。
+     *
+     * <p>独立页面而不是复用个人中心的改密弹窗：这批用户改密前**什么接口都调不了**
+     * （见 {@code PasswordChangeGuardFilter}），个人中心那些资料卡片会全部报错，
+     * 页面上只有一片错误提示。这里只留一个改密表单，没有别的可点。
+     */
+    @GetMapping("/change-password")
+    public String changePassword() {
+        return "change-password";
+    }
+
     @GetMapping("/dashboard")
     public String dashboard() {
         return "dashboard";
+    }
+
+    /**
+     * 客户公司看板（客户管理员看自己的公司）。
+     *
+     * <p>页面本身与其它后台页一样放行（SecurityConfig 白名单），真正的数据闸门在
+     * {@code /api/client-admin/stats} 的 {@code @PreAuthorize("hasRole('CLIENT_ADMIN')")}——
+     * 非客户管理员打开这个页面只会看到一个"无权访问"的空壳，拿不到任何数字。
+     */
+    @GetMapping("/client-admin")
+    public String clientAdmin() {
+        return "client-admin";
     }
 
     /**

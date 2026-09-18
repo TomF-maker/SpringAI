@@ -59,12 +59,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Response.fail(ErrorCode.FORBIDDEN));
     }
 
-    /** 上传体积超限（默认 50MB），文档页很容易触发；以前是 whitelabel 页面。 */
+    /** 上传体积超限（单文件 50MB / 整个请求 500MB），文档页很容易触发；以前是 whitelabel 页面。 */
     @ExceptionHandler(MultipartException.class)
     public ResponseEntity<Response<Void>> handleMultipart(MultipartException e) {
         log.warn("上传请求处理失败: {}", e.getMessage());
+        // 批量入库放宽了整个请求的上限（见 application.yaml），所以这里两种都要提，
+        // 否则用户按"单文件 50MB"去核对会一脸问号：明明每份都没超。
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(Response.fail("413", "上传文件过大或请求格式不正确（单文件上限 50MB）"));
+                .body(Response.fail("413", "上传内容过大或请求格式不正确（单文件上限 50MB，整批合计上限 500MB）"));
     }
 
     /**

@@ -341,6 +341,17 @@
         localStorage.setItem('username', data.username);
         localStorage.setItem('realName', data.realName);
         localStorage.setItem('userId', data.userId);
+        // 侧边栏靠这两个值区分"内部管理员"（可见所有客户）与"客户管理员"（只看本公司）：
+        // 客户管理员是 userType=2 且 isAdmin=1，用 username 判断认不出来。
+        // 缺失时统一存成空串，避免存进去字符串 "undefined" 被当成真值。
+        localStorage.setItem('userType', data.userType == null ? '' : String(data.userType));
+        localStorage.setItem('isAdmin', data.isAdmin == null ? '' : String(data.isAdmin));
+        // 批量导入的账号带统一初始密码：先去改密码，不给他进 /chat ——
+        // 进去也是一片 403（服务端 PasswordChangeGuardFilter 会拦所有接口）。
+        if (data.mustChangePassword) {
+            window.location.href = '/change-password';
+            return;
+        }
         window.location.href = '/chat';
     }
 

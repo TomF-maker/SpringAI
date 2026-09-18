@@ -45,10 +45,6 @@
       <text class="info-value">{{user.phone || '未绑定'}}</text>
     </view>
     <view class="info-row">
-      <text class="info-label">部门</text>
-      <text class="info-value">{{user.departmentName || '-'}}</text>
-    </view>
-    <view class="info-row">
       <text class="info-label">公司</text>
       <text class="info-value">{{user.companyName || '-'}}</text>
     </view>

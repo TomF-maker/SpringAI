@@ -7,6 +7,16 @@ import java.security.SecureRandom;
  */
 public class PasswordGenerator {
 
+    /**
+     * 平台密码最小长度。
+     *
+     * <p>注册、重置密码、自助改密、xlsx 批量导入<b>四处共用这一个数字</b> ——
+     * 以前它只写死在 {@code AuthController} 里（而且曾经只有前端有校验），
+     * 新加的入口很容易漏掉，于是同一套平台上出现"注册要 8 位、改密 1 位也行"。
+     * 改这里就都变了；要更复杂的规则就把它换成 {@code common.PasswordPolicy}。
+     */
+    public static final int MIN_LENGTH = 8;
+
     private static final String UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     private static final String LOWER = "abcdefghijklmnopqrstuvwxyz";
     private static final String DIGITS = "0123456789";

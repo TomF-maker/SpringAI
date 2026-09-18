@@ -96,7 +96,7 @@ public class QuestionLogService implements QuestionLogServiceI {
     }
 
     @Override
-    public Long record(String question, Long userId, Long departmentId, String conversationId,
+    public Long record(String question, Long userId, String conversationId,
                        String hitType, int retrievedCount, String toolName, String clientIp) {
         try {
             KbQuestionLog row = new KbQuestionLog();
@@ -142,7 +142,12 @@ public class QuestionLogService implements QuestionLogServiceI {
             geoExecutor.execute(() -> {
                 try {
                     IpGeo geo = ipGeoService.lookup(clientIp);
-                    if (geo == IpGeo.UNKNOWN) {
+                    // 不能用 `geo == IpGeo.UNKNOWN` 判空：缓存/fetch 会返回字段全空的**新实例**
+                    // （境外 IP、服务商查得到但无省市的合法答案），它们 != UNKNOWN 常量。
+                    // 此时三个 setter 全是 null，MyBatis-Plus 的 updateById 会生成空 SET
+                    // （`UPDATE kb_question_log WHERE id=?`）直接 SQL 语法错误。
+                    // display() 全空返回 null，等价于"三个字段全空"，用它判才正确。
+                    if (geo.display() == null) {
                         return;
                     }
                     KbQuestionLog update = new KbQuestionLog();

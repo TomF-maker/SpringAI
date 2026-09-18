@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+﻿﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
@@ -23,6 +23,37 @@
         .upload-btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
         .upload-btn-group .btn { white-space: nowrap; }
         .text-ellipsis { max-width: 120px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+
+        /* 批量上传的逐条进度列表。
+           做成列表而不是一个总进度条：批量导入时"第 7 份失败了、为什么失败"比
+           "62%" 有用得多 —— 失败的那几份要能单独看到原因并重传。 */
+        .batch-list { text-align: left; max-height: 240px; overflow-y: auto; }
+        .batch-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed var(--pa-border, #E5E7EB); }
+        .batch-item:last-child { border-bottom: none; }
+        .batch-item .batch-name { flex: 1; color: var(--pa-text-soft, #425466); word-break: break-all; }
+        .batch-item .batch-state { flex: 0 0 auto; font-size: 12px; font-weight: 600; }
+        .batch-item .batch-state.waiting { color: var(--pa-text-faint, #B0BCC8); }
+        .batch-item .batch-state.uploading { color: var(--pa-primary, #635BFF); }
+        .batch-item .batch-state.ok { color: var(--pa-success, #1EA672); }
+        .batch-item .batch-state.fail { color: var(--pa-danger, #D6483D); }
+        /* 成功时是"已切分 N 个片段"，失败时才是红色错误原因 —— 所以基础色是灰的 */
+        .batch-item .batch-msg { display: block; font-size: 11px; color: var(--pa-text-muted, #8898AA); margin-top: 2px; }
+        .batch-item .batch-msg.fail { color: var(--pa-danger, #D6483D); }
+
+        /* 批量进度面板 */
+        .batch-panel {
+            background: var(--pa-primary-soft, #F0EFFF);
+            border: 1px solid var(--pa-primary-tint, #E6E1FF);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+        }
+        .batch-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .batch-panel-title { font-size: 13px; font-weight: 600; color: var(--pa-ink, #0A2540); }
+        .batch-panel .btn-close-sm { font-size: 10px; }
+        .batch-progress { height: 6px; margin-top: 8px; background: rgba(99, 91, 255, 0.14); }
+        .batch-progress .progress-bar { background: var(--pa-primary, #635BFF); transition: width .3s ease; }
+        .batch-panel .batch-list { margin-top: 8px; max-height: 200px; overflow-y: auto; }
         @media (max-width: 991.98px) {
             .filter-bar .form-control, .filter-bar .form-select { width: 100%; }
             .filter-bar { gap: 8px; }
@@ -46,9 +77,6 @@
             <!-- 过滤和操作栏 -->
             <div class="filter-bar">
                 <input type="text" id="keyword" class="form-control" placeholder="🔍 搜索标题/文件名" style="flex:1; min-width:180px;">
-                <select id="deptFilter" class="form-select">
-                    <option value="">全部部门</option>
-                </select>
                 <select id="clientFilter" class="form-select">
                     <option value="">全部客户</option>
                 </select>
@@ -60,6 +88,21 @@
                 </div>
             </div>
 
+            <!-- 批量入库进度面板：提交后立刻出现，页面刷新后也会自动恢复。
+                 放在表格上方而不是弹窗里 —— 异步的意义就是让用户可以关掉弹窗继续干别的，
+                 进度塞在弹窗里等于还是要盯着它。 -->
+            <div id="batchPanel" class="batch-panel d-none">
+                <div class="batch-panel-head">
+                    <span id="batchTitle" class="batch-panel-title"></span>
+                    <button type="button" class="btn-close btn-close-sm" id="batchCloseBtn"
+                            title="收起（任务仍在后台继续）"></button>
+                </div>
+                <div class="progress batch-progress">
+                    <div id="batchBar" class="progress-bar" role="progressbar" style="width:0%"></div>
+                </div>
+                <div id="batchDetail" class="batch-list d-none"></div>
+            </div>
+
             <!-- 文档表格 -->
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
@@ -69,16 +112,15 @@
                         <th>标题</th>
                         <th>文件名</th>
                         <th>上传人</th>
-                        <th>部门</th>
                         <th>客户</th>
-                        <th style="width:120px;">可见性</th>
+                        <th style="width:90px;">公开</th>
                         <th style="width:80px;">状态</th>
                         <th style="width:60px;">片段</th>
                         <th style="width:80px;">操作</th>
                     </tr>
                     </thead>
                     <tbody id="docTableBody">
-                    <tr><td colspan="10" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -102,18 +144,23 @@
                 <form id="uploadFileForm">
                     <div class="mb-3">
                         <label class="form-label">选择文件 <span class="text-danger">*</span></label>
-                        <input type="file" class="form-control" id="fileInput" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.md" required>
-                        <small class="text-muted">支持 PDF、DOC、DOCX、XLS、XLSX、TXT、MD 格式，最大 50MB</small>
+                        <!-- multiple：支持一次选多份批量入库。整批共用下面这份归属设置
+                             （客户/可见性/公开），所以"批量"的粒度就是一次选择。 -->
+                        <input type="file" class="form-control" id="fileInput"
+                               accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.md" multiple required>
+                        <small class="text-muted">
+                            支持 PDF、DOC、DOCX、XLS、XLSX、TXT、MD 格式，最大 50MB。
+                            <b>可多选批量上传</b>，整批共用下方的归属设置。
+                        </small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">文档标题（可选）</label>
                         <input type="text" class="form-control" id="fileTitle" placeholder="留空则使用文件名">
+                        <small class="text-muted d-none" id="fileTitleHint">
+                            已选多份文件，本栏不生效 —— 每份文档自动以文件名作标题
+                        </small>
                     </div>
                     <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">归属部门 <span class="text-danger">*</span></label>
-                            <select class="form-select" id="fileDepartment" required></select>
-                        </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">所属客户</label>
                             <select class="form-select" id="fileClient">
@@ -121,16 +168,9 @@
                             </select>
                             <small class="text-muted">不选则视为通用方法论，所有客户都能检索到</small>
                         </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">可见性</label>
-                            <select class="form-select" id="fileVisibleType">
-                                <option value="1">本部门</option>
-                                <option value="2">全公司</option>
-                                <option value="3">指定部门</option>
-                            </select>
-                        </div>
+                        <!-- 归属只有两档：所属客户 + 是否公开。此前那个按部门划分的
+                             「可见性」下拉已随部门维度一起废弃（见 doc/商业化方案.md
+                             「A2. 去掉部门维度」）—— 留着会让人以为它能决定谁能检索到。 -->
                         <div class="col-md-6 mb-3">
                             <label class="form-label">是否公开</label>
                             <select class="form-select" id="fileIsPublic">
@@ -171,25 +211,11 @@
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">归属部门 <span class="text-danger">*</span></label>
-                            <select class="form-select" id="urlDepartment" required></select>
-                        </div>
-                        <div class="col-md-6 mb-3">
                             <label class="form-label">所属客户</label>
                             <select class="form-select" id="urlClient">
                                 <option value="">通用方法论（所有客户可见）</option>
                             </select>
                             <small class="text-muted">不选则视为通用方法论，所有客户都能检索到</small>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">可见性</label>
-                            <select class="form-select" id="urlVisibleType">
-                                <option value="1">本部门</option>
-                                <option value="2">全公司</option>
-                                <option value="3">指定部门</option>
-                            </select>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">是否公开</label>
@@ -213,7 +239,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=4"></script>
+<script src="/js/app.js?v=5"></script>
 <script>
     // ================================================================
     // 认证 & 全局拦截
@@ -238,28 +264,12 @@
     // 均由 /js/app.js 统一处理
 
     // ================================================================
-    // 加载部门列表
+    // 当前登录者是不是客户公司管理员（外部用户 + isAdmin）
+    // 与侧边栏 layout.html 的判定同一套规则，登录时写进 localStorage
     // ================================================================
-    async function loadDepartments() {
-        try {
-            const resp = await fetch('/api/departments/tree');
-            const data = await resp.json();
-            if (data.success) {
-                const flat = flattenTree(data.data);
-                const selects = ['deptFilter', 'fileDepartment', 'urlDepartment'];
-                selects.forEach(id => {
-                    const sel = document.getElementById(id);
-                    if (!sel) return;
-                    let html = '<option value="">请选择</option>';
-                    flat.forEach(d => {
-                        html += `<option value="${d.id}">${esc(d.deptName)}</option>`;
-                    });
-                    sel.innerHTML = html;
-                });
-            }
-        } catch (err) {
-            console.error('加载部门失败', err);
-        }
+    function isClientAdmin() {
+        return localStorage.getItem('userType') === '2'
+            && localStorage.getItem('isAdmin') === '1';
     }
 
     // ================================================================
@@ -271,32 +281,56 @@
             const data = await resp.json();
             if (!data.success) return;
             const clients = data.data || [];
-            const selects = ['clientFilter', 'fileClient', 'urlClient'];
-            selects.forEach(id => {
-                const sel = document.getElementById(id);
-                if (!sel) return;
-                // 保留第一项（"全部客户" 或 "通用方法论"）
-                const first = sel.options[0] ? sel.options[0].outerHTML : '';
+
+            // 客户管理员：后端 /clients 只返回本公司。上传表单的客户下拉必须锁死 ——
+            // 「通用方法论（所有客户可见）」那一项对他不适用（后端也会强制改成本公司），
+            // 留着会让人以为能把资料发布给别的客户。
+            if (isClientAdmin()) {
+                const own = clients[0];
+                ['fileClient', 'urlClient'].forEach(id => {
+                    const sel = document.getElementById(id);
+                    if (!sel) return;
+                    sel.innerHTML = own
+                        ? `<option value="${own.id}">${esc(own.companyName)}（本公司）</option>`
+                        : '<option value="">（账号未绑定公司，无法上传）</option>';
+                    sel.value = own ? String(own.id) : '';
+                    sel.disabled = true;   // 服务端会强制，界面上也不给改
+                });
+                document.querySelectorAll('#fileClient, #urlClient')
+                    .forEach(sel => {
+                        const tip = sel.parentElement.querySelector('small');
+                        if (tip) tip.textContent = '客户管理员只能上传本公司的资料';
+                    });
+            }
+
+            // 筛选栏：管理员选"全部客户/某一家"，客户管理员只有"全部客户/本公司"，
+            // 同一段逻辑即可（数据源已经被后端收窄）
+            const filterSel = document.getElementById('clientFilter');
+            if (filterSel) {
+                const first = filterSel.options[0] ? filterSel.options[0].outerHTML : '';
                 let html = first;
                 clients.forEach(c => {
                     html += `<option value="${c.id}">${esc(c.companyName)}</option>`;
                 });
-                sel.innerHTML = html;
-            });
+                filterSel.innerHTML = html;
+            }
+
+            // 内部管理员才需要给上传表单铺完整的客户下拉
+            if (!isClientAdmin()) {
+                ['fileClient', 'urlClient'].forEach(id => {
+                    const sel = document.getElementById(id);
+                    if (!sel) return;
+                    const first = sel.options[0] ? sel.options[0].outerHTML : '';
+                    let html = first;
+                    clients.forEach(c => {
+                        html += `<option value="${c.id}">${esc(c.companyName)}</option>`;
+                    });
+                    sel.innerHTML = html;
+                });
+            }
         } catch (err) {
             console.error('加载客户列表失败', err);
         }
-    }
-
-    function flattenTree(tree) {
-        let result = [];
-        tree.forEach(node => {
-            result.push({ id: node.id, deptName: node.deptName });
-            if (node.children) {
-                result = result.concat(flattenTree(node.children));
-            }
-        });
-        return result;
     }
 
     // ================================================================
@@ -322,11 +356,9 @@
 
     async function loadDocuments(page = 1) {
         const keyword = document.getElementById('keyword').value.trim();
-        const deptId = document.getElementById('deptFilter').value;
         const clientId = document.getElementById('clientFilter').value;
         const params = new URLSearchParams({ page, size: pageSize });
         if (keyword) params.append('keyword', keyword);
-        if (deptId) params.append('departmentId', deptId);
         if (clientId) params.append('clientId', clientId);
 
         try {
@@ -341,14 +373,14 @@
             currentPage = pageResult.page || 1;
         } catch (err) {
             document.getElementById('docTableBody').innerHTML =
-                `<tr><td colspan="10" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
+                `<tr><td colspan="8" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
         }
     }
 
     function renderTable(docs) {
         const tbody = document.getElementById('docTableBody');
         if (!docs || docs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">📭 暂无文档</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">📭 暂无文档</td></tr>';
             return;
         }
 
@@ -357,8 +389,6 @@
             const statusClass = d.status === 1 ? 'success' : d.status === 0 ? 'pending' : 'failed';
             const statusText = d.status === 1 ? '已处理' : d.status === 0 ? '待处理' : '失败';
             const isPublic = d.isPublic === 1 ? '公开' : '内部';
-            const visibleMap = {1:'本部门',2:'全公司',3:'指定部门'};
-            const visibleText = visibleMap[d.visibleType] || '未知';
             const isPublicClass = d.isPublic === 1 ? 'public' : '';
             // 客户归属：null=通用方法论，非 null=客户名
             const clientBadge = d.clientId
@@ -370,10 +400,8 @@
                     <td><span class="text-ellipsis" title="${esc(d.title || '-')}">${esc(d.title || '-')}</span></td>
                     <td><span class="text-ellipsis" title="${esc(d.fileName || '-')}">${esc(d.fileName || '-')}</span></td>
                     <td>${esc(d.uploaderName || '-')}</td>
-                    <td>${esc(d.departmentName || '-')}</td>
                     <td>${clientBadge}</td>
                     <td>
-                        <span class="visibility-badge">${visibleText}</span>
                         <span class="visibility-badge ${isPublicClass}">${isPublic}</span>
                     </td>
                     <td><span class="doc-status ${statusClass}">${statusText}</span></td>
@@ -415,7 +443,6 @@
     document.getElementById('searchBtn').addEventListener('click', () => loadDocuments(1));
     document.getElementById('resetBtn').addEventListener('click', () => {
         document.getElementById('keyword').value = '';
-        document.getElementById('deptFilter').value = '';
         document.getElementById('clientFilter').value = '';
         loadDocuments(1);
     });
@@ -430,46 +457,209 @@
         new bootstrap.Modal(document.getElementById('uploadFileModal')).show();
     });
 
+    // 选了几个文件 → 更新按钮文案；多选时"文档标题"那一栏不生效，给个提示
+    document.getElementById('fileInput').addEventListener('change', function() {
+        const n = (this.files || []).length;
+        document.getElementById('fileTitleHint').classList.toggle('d-none', n <= 1);
+        refreshUploadBtnLabel();
+    });
+
+    function refreshUploadBtnLabel() {
+        const btn = document.getElementById('submitFileBtn');
+        if (btn.disabled) return;   // 提交中不要覆盖文案
+        const n = (document.getElementById('fileInput').files || []).length;
+        btn.textContent = n > 1 ? `确认上传 ${n} 份` : '确认上传';
+    }
+
+    // ================================================================
+    // 批量入库（异步）
+    //
+    // 提交只把文件传上去、拿到 batchId 就结束；真正的入库（跑 embedding）在服务端
+    // 后台串行执行，前端每 2 秒轮询一次进度。
+    //
+    // 为什么改成异步：每份文档要跑 embedding，一批几十份就是好几分钟。
+    // 同步接口会把浏览器一直挂着，中间任何一层超时都会让整批结果不可知 ——
+    // 而服务端其实还在跑。
+    // ================================================================
+    let batchTimer = null;   // 轮询定时器
+    let batchId = null;      // 正在跟踪的批次
+
+    /** 渲染逐条状态。esc() 转义文件名 —— 文件名是可以带尖括号的用户输入。 */
+    function renderBatchItems(box, items) {
+        const stateText = { WAITING: '等待', UPLOADING: '入库中…', OK: '完成', FAIL: '失败' };
+        box.innerHTML = items.map(it =>
+            '<div class="batch-item">'
+            + '<span class="batch-name">' + esc(it.fileName)
+            + (it.message
+                ? '<span class="batch-msg' + (it.state === 'FAIL' ? ' fail' : '') + '">'
+                    + esc(it.message) + '</span>'
+                : '')
+            + '</span>'
+            + '<span class="batch-state ' + String(it.state || '').toLowerCase() + '">'
+            + (stateText[it.state] || '等待') + '</span>'
+            + '</div>'
+        ).join('');
+    }
+
+    function renderBatchPanel(st) {
+        document.getElementById('batchPanel').classList.remove('d-none');
+
+        const pct = st.total ? Math.round(st.finished * 100 / st.total) : 0;
+        document.getElementById('batchBar').style.width = pct + '%';
+
+        const title = document.getElementById('batchTitle');
+        if (st.state === 'RUNNING') {
+            title.textContent = '正在入库 ' + st.finished + '/' + st.total + ' 份'
+                + (st.failed ? '（已失败 ' + st.failed + ' 份）' : '')
+                + '，完成后会提示';
+        } else if (st.failed) {
+            title.textContent = '入库完成：成功 ' + st.succeeded + ' 份，失败 '
+                + st.failed + ' 份（原因见下）';
+        } else {
+            title.textContent = '入库完成：' + st.succeeded + ' 份全部成功';
+        }
+
+        const detail = document.getElementById('batchDetail');
+        detail.classList.remove('d-none');
+        renderBatchItems(detail, st.items || []);
+    }
+
+    /** 批次执行中禁用导入入口 —— 服务端也会拒（CAS），这里只是不让用户白点。 */
+    function setImportDisabled(disabled) {
+        ['uploadFileBtn', 'uploadUrlBtn'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.disabled = disabled;
+            btn.title = disabled ? '有批量任务正在入库，完成后再导入' : '';
+        });
+        const uploadBtn = document.getElementById('uploadFileBtn');
+        if (uploadBtn) {
+            uploadBtn.innerHTML = disabled
+                ? '<span class="spinner-border spinner-border-sm"></span> 入库中…'
+                : '<i class="bi bi-upload"></i> 上传文件';
+        }
+    }
+
+    function stopPolling() {
+        if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+    }
+
+    async function pollBatch() {
+        if (!batchId) return;
+        try {
+            const resp = await fetch('/api/documents/upload/batch/' + encodeURIComponent(batchId));
+            const env = await resp.json();
+            const st = env && env.data;
+            if (!st) {
+                // 批次已被顶替或不存在 —— 不再轮询，恢复入口
+                stopPolling();
+                batchId = null;
+                setImportDisabled(false);
+                return;
+            }
+            renderBatchPanel(st);
+
+            if (st.state === 'DONE') {
+                stopPolling();
+                batchId = null;
+                setImportDisabled(false);
+                loadDocuments(currentPage);
+                await Swal.fire(
+                    st.failed ? '部分文件未成功' : '✅ 异步入库完成',
+                    st.failed
+                        ? st.succeeded + ' 份成功，' + st.failed + ' 份失败。失败原因见页面上方的进度面板。'
+                        : st.succeeded + ' 份文档已全部入库',
+                    st.failed ? 'warning' : 'success');
+                return;
+            }
+            batchTimer = setTimeout(pollBatch, 2000);
+        } catch (err) {
+            // 单次轮询失败**不终止**：网络抖动一下就放弃，用户会以为任务丢了。
+            // 拉长间隔继续试，真正的失败（批次消失）由下一次响应里的 data=null 判断。
+            console.error('轮询批次进度失败', err);
+            batchTimer = setTimeout(pollBatch, 5000);
+        }
+    }
+
+    /**
+     * 提交一批文件。
+     *
+     * <p>提交动作用的是 `/upload/batch`（异步），单份也走它 ——
+     * 不保留"单份同步、多份异步"两种行为，那会让人搞不清为什么传一个文件要等、
+     * 传三个反而不等。
+     */
     document.getElementById('submitFileBtn').addEventListener('click', async function() {
-        const file = document.getElementById('fileInput').files[0];
-        if (!file) { Swal.fire('请选择文件', '', 'warning'); return; }
+        const files = Array.from(document.getElementById('fileInput').files || []);
+        if (!files.length) { Swal.fire('请选择文件', '', 'warning'); return; }
+
         const title = document.getElementById('fileTitle').value.trim();
-        const departmentId = document.getElementById('fileDepartment').value;
-        if (!departmentId) { Swal.fire('请选择归属部门', '', 'warning'); return; }
-        const visibleType = parseInt(document.getElementById('fileVisibleType').value);
-        const isPublic = document.getElementById('fileIsPublic').value === 'true';
 
         const formData = new FormData();
-        formData.append('file', file);
-        formData.append('title', title);
-        formData.append('departmentId', departmentId);
+        files.forEach(f => formData.append('files', f));
+        // 多选时忽略"文档标题"：一份标题套到 N 份文档上没有意义。
+        // 后端本来就有"标题为空则用文件名"的逻辑，所以直接不传即可。
+        formData.append('title', files.length === 1 ? title : '');
         const fileClientId = document.getElementById('fileClient').value;
         if (fileClientId) formData.append('clientId', fileClientId);
-        formData.append('visibleType', visibleType);
-        formData.append('isPublic', isPublic);
+        formData.append('isPublic', document.getElementById('fileIsPublic').value);
 
         this.disabled = true;
-        document.getElementById('fileUploadProgress').innerHTML = '<div class="spinner-border text-primary"></div>';
+        // 这一步是在**传文件本体**（可能有几十 MB），传完服务端才返回 batchId。
+        // 与后面的"入库中"分开提示，用户才知道卡在哪一段。
+        this.textContent = '正在上传文件…';
 
         try {
-            const resp = await fetch('/api/documents/upload/metadata', { method: 'POST', body: formData });
-            const data = await resp.json();
-            if (data.success) {
-                await Swal.fire('✅ 上传成功', `文档已处理，共 ${data.data.chunkCount} 个片段`, 'success');
-                bootstrap.Modal.getInstance(document.getElementById('uploadFileModal')).hide();
-                loadDocuments(currentPage);
-            } else {
-                Swal.fire('❌ 上传失败', data.errMessage, 'error');
+            const resp = await fetch('/api/documents/upload/batch', { method: 'POST', body: formData });
+            const env = await resp.json();
+            if (!env.success) {
+                await Swal.fire('❌ 提交失败', env.errMessage || '未知错误', 'error');
+                return;
             }
-        } catch (err) {
-            Swal.fire('❌ 请求失败', err.message, 'error');
-        } finally {
-            this.disabled = false;
-            document.getElementById('fileUploadProgress').innerHTML = '';
+            // 提交成功 → 关掉弹窗，进度显示在页面上。异步的意义就是让用户可以接着干别的。
+            bootstrap.Modal.getInstance(document.getElementById('uploadFileModal')).hide();
             document.getElementById('fileInput').value = '';
             document.getElementById('fileTitle').value = '';
+            document.getElementById('fileTitleHint').classList.add('d-none');
+
+            batchId = env.data.batchId;
+            setImportDisabled(true);
+            await Swal.fire('已提交',
+                `共 ${env.data.total} 份文件开始入库，可以继续操作其他页面，完成后会提示。`,
+                'success');
+            pollBatch();
+        } catch (err) {
+            await Swal.fire('❌ 提交失败', err.message, 'error');
+        } finally {
+            this.disabled = false;
+            refreshUploadBtnLabel();
         }
     });
+
+    // 收起进度面板（任务仍在后台继续，只是不再占着页面）
+    document.getElementById('batchCloseBtn').addEventListener('click', function() {
+        document.getElementById('batchPanel').classList.add('d-none');
+    });
+
+    /**
+     * 页面加载时恢复进度。
+     *
+     * <p>只恢复**进行中**的批次：已完成的不再重复弹提示（刷新一次弹一次很烦）。
+     * 用户如果刷新走了、任务还在跑，进来就能看到并继续跟踪。
+     */
+    async function restoreRunningBatch() {
+        try {
+            const resp = await fetch('/api/documents/upload/batch/current');
+            const env = await resp.json();
+            const st = env && env.data;
+            if (!st || st.state !== 'RUNNING') return;
+            batchId = st.batchId;
+            setImportDisabled(true);
+            renderBatchPanel(st);
+            pollBatch();
+        } catch (err) {
+            console.error('恢复批次进度失败', err);
+        }
+    }
 
     // ================================================================
     // URL上传
@@ -481,13 +671,10 @@
     document.getElementById('submitUrlBtn').addEventListener('click', async function() {
         const url = document.getElementById('urlInput').value.trim();
         const title = document.getElementById('urlTitle').value.trim();
-        const departmentId = document.getElementById('urlDepartment').value;
         if (!url) { Swal.fire('请输入文件URL', '', 'warning'); return; }
-        if (!departmentId) { Swal.fire('请选择归属部门', '', 'warning'); return; }
-        const visibleType = parseInt(document.getElementById('urlVisibleType').value);
         const isPublic = document.getElementById('urlIsPublic').value === 'true';
 
-        const payload = { url, title, departmentId, visibleType, isPublic };
+        const payload = { url, title, isPublic };
         const urlClientId = document.getElementById('urlClient').value;
         if (urlClientId) payload.clientId = urlClientId;
 
@@ -550,9 +737,10 @@
     // ================================================================
     // 初始化
     // ================================================================
-    loadDepartments();
     loadClients();
     loadDocuments(1);
+    // 刷新进来时如果后台还有批次在跑，恢复进度显示并继续跟踪
+    restoreRunningBatch();
 </script>
 </body>
 </html>

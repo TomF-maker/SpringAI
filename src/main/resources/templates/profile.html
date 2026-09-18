@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+﻿﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
@@ -82,10 +82,6 @@
                         <label class="form-label">真实姓名</label>
                         <input type="text" class="form-control" id="realName" placeholder="请输入真实姓名">
                     </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">部门</label>
-                        <input type="text" class="form-control" id="department" disabled>
-                    </div>
                 </div>
                 <div class="row">
                     <div class="col-md-6 mb-3">
@@ -148,7 +144,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=4"></script>
+<script src="/js/app.js?v=5"></script>
 <script>
     // ===== 认证检查 =====
     const token = localStorage.getItem('token');
@@ -183,7 +179,6 @@
             document.getElementById('realName').value = user.realName || '';
             document.getElementById('email').value = user.email || '';
             document.getElementById('phone').value = user.phone || '';
-            document.getElementById('department').value = user.departmentName || '未分配';
             document.getElementById('companyName').value = user.companyName || '';
             document.getElementById('creditCode').value = user.creditCode || '';
             document.getElementById('createdAt').value = user.createdAt ? new Date(user.createdAt).toLocaleString() : '-';

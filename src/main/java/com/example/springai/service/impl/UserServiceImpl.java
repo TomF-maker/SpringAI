@@ -3,6 +3,7 @@ package com.example.springai.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.springai.common.EmailFormat;
+import com.example.springai.common.ErrorCode;
 import com.example.springai.dto.*;
 import com.example.springai.entity.SysCompany;
 import com.example.springai.entity.SysDepartment;
@@ -56,7 +57,7 @@ public class UserServiceImpl implements UserServiceI {
     @Autowired
     private EmailServiceI emailService;
     @Override
-    public Page<UserListDTO> listUsers(int page, int size, String keyword, Integer status, Long departmentId) {
+    public Page<UserListDTO> listUsers(int page, int size, String keyword, Integer status) {
         Page<SysUser> pageParam = new Page<>(page, size);
         QueryWrapper<SysUser> wrapper = new QueryWrapper<>();
         if (StringUtils.hasText(keyword)) {
@@ -65,9 +66,8 @@ public class UserServiceImpl implements UserServiceI {
         if (status != null) {
             wrapper.eq("status", status);
         }
-        if (departmentId != null) {
-            wrapper.eq("department_id", departmentId);
-        }
+        // 没有部门筛选：部门维度已废弃（见 doc/商业化方案.md「A2. 去掉部门维度」），
+        // department_id 只是个常量占位，按它筛不是"筛某个部门"而是"筛出所有行"。
         wrapper.orderByDesc("created_at");
 
         Page<SysUser> userPage = userMapper.selectPage(pageParam, wrapper);
@@ -321,15 +321,35 @@ public class UserServiceImpl implements UserServiceI {
         if (user == null) {
             throw new RuntimeException("用户不存在");
         }
+        // 新密码长度校验。**必须放在改库之前**（纯输入检查、无副作用，先跑完）。
+        //
+        // 此前这里**完全没有校验**，只有 profile.html 的 minlength ——
+        // 绕过前端就能把密码改成 1 位。用 PasswordGenerator.MIN_LENGTH 而不是写死 8，
+        // 是为了和注册/重置/批量导入共用同一个阈值（写死过一次就漂移过了）。
+        String newPassword = request.getNewPassword();
+        if (newPassword == null || newPassword.length() < PasswordGenerator.MIN_LENGTH) {
+            throw new BizException(ErrorCode.BAD_REQUEST,
+                    "新密码至少 " + PasswordGenerator.MIN_LENGTH + " 位");
+        }
         // 验证旧密码
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
             throw new RuntimeException("旧密码错误");
         }
+        if (passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "新密码不能与当前密码相同");
+        }
         // 加密新密码
-        String encoded = passwordEncoder.encode(request.getNewPassword());
+        String encoded = passwordEncoder.encode(newPassword);
         user.setPassword(encoded);
+        // 改密成功即清掉"必须先改初始密码"的标记 —— 这是护栏唯一的解除点。
+        //
+        // 这里用整个实体 updateById 是安全的：`user` 是本方法第一行刚查出来的，
+        // 中间没有别的写操作（pitfall #1 说的"旧快照"指的是登录流程里那个
+        // 跨越了其他写入的 user）。且 mustChangePassword 被设为 0 而不是 null，
+        // 所以 MyBatis-Plus 跳过 null 字段的行为不会把它漏掉。
+        user.setMustChangePassword(0);
         userMapper.updateById(user);
-        log.info("用户 {} 密码已修改", userId);
+        log.info("用户 {} 密码已修改（mustChangePassword 已清零）", userId);
     }
 
     @Override

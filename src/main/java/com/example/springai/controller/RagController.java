@@ -241,7 +241,6 @@ public class RagController {
             try {
                 questionLogService.record(question,
                         currentUserId,
-                        currentUser == null ? null : currentUser.getDepartmentId(),
                         finalConversationId, KbQuestionLog.HIT_ERROR, 0, null, clientIp);
             } catch (Throwable t) {
                 log.warn("异常埋点写入失败: {}", t.getMessage());

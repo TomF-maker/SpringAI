@@ -89,9 +89,8 @@ Page({
   },
 
   async upload(file) {
-    // departmentId 是必填项，默认用当前用户所属部门；没有的话给 0 让后端兜底
-    const me = auth.getUserInfo() || {};
-    const departmentId = me.departmentId || 0;
+    // 不再传 departmentId —— 归属部门已废弃（见 doc/商业化方案.md「A2 去掉部门维度」），
+    // 后端既不再要求它、也不再拿它做权限判断。
     this.setData({ uploading: { name: file.name, progress: 0 } });
 
     try {
@@ -101,7 +100,6 @@ Page({
         name: 'file',
         formData: {
           title: file.name,
-          departmentId: String(departmentId),
           visibleType: '1',
           isPublic: 'false'
         },

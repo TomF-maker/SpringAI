@@ -22,7 +22,6 @@ import com.example.springai.mapper.SysUserRoleMapper;
 import com.example.springai.exception.BizException;
 import com.example.springai.service.CaptchaServiceI;
 import com.example.springai.service.CompanyServiceI;
-import com.example.springai.service.DepartmentServiceI;
 import com.example.springai.service.EmailServiceI;
 import com.example.springai.service.impl.EmailCodeRateLimiter;
 import com.example.springai.service.impl.LoginAttemptLimiter;
@@ -34,6 +33,7 @@ import com.example.springai.service.VerificationCodeServiceI;
 import com.example.springai.service.impl.SmsRateLimiter;
 import com.example.springai.utils.IpUtils;
 import com.example.springai.utils.JwtUtils;
+import com.example.springai.utils.PasswordGenerator;
 import com.example.springai.utils.PhoneUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
@@ -97,9 +97,6 @@ public class AuthController {
     private LoginLogServiceI loginLogService;
 
     @Autowired
-    private DepartmentServiceI departmentService;
-
-    @Autowired
     private CompanyServiceI companyService;
 
     /** 登录密码重试限制（账号锁定 + IP 节流）。此前完全没有，等于爆破成本为零。 */
@@ -134,7 +131,7 @@ public class AuthController {
      * 密码最短长度。和 register.html / forgot-password.html 里的 {@code minlength} 是同一个值，
      * 改一处必须改另一处 —— 前端那个只是体验，**这里才是约束**。
      */
-    private static final int MIN_PASSWORD_LENGTH = 8;
+    private static final int MIN_PASSWORD_LENGTH = PasswordGenerator.MIN_LENGTH;
 
     @Value("${app.sms.enabled:false}")
     private boolean smsEnabled;
@@ -543,14 +540,17 @@ public class AuthController {
         user.setPhone(phone);
         user.setRealName(request.getRealName() != null ? request.getRealName() : request.getUsername());
         user.setCompanyId(companyId);
-        // 部门归属：公司名正好是个部门就用它，否则挂总公司。走的是退让逻辑，
-        // 但外面仍包一层 —— 注册不该因为"部门表没配好"这种无关原因失败
-        try {
-            user.setDepartmentId(departmentService.resolveRegistrationDeptId(companyName));
-        } catch (Exception e) {
-            log.warn("解析注册归属部门失败，本次不设部门: {}", e.getMessage());
-        }
-        user.setUserType(1);           // 默认内部员工
+        // 归属部门已废弃（见 doc/商业化方案.md「A2. 去掉部门维度」）：
+        // 不再拿公司名去 sys_department 里碰、也不再依赖"总公司"这类节点存在与否，
+        // 统一写常量 1。它不再参与任何权限判断，只是个历史占位 ——
+        // 保留列是为了存量数据与回滚（彻底删列留到确认无回滚需求之后）。
+        user.setDepartmentId(1L);
+        // 【必须是 2（外部用户），不能是 1】自助注册是"填信用代码创建/关联公司"的流程，
+        // 注册出来的人本质是**客户公司员工**。写 1 会把他标成"内部员工"，
+        // 而内部非管理员的检索是**不过滤**的（见 RagServiceImpl.internalUserFilter）——
+        // 那等于任何一个自助注册的账号都能搜到所有客户的专属文档。
+        // 2026-09-18 更正：这里原本是 1（注释写"默认内部员工"），属语义错误。
+        user.setUserType(2);
         user.setStatus(1);             // 默认启用
         user.setIsAdmin(0);            // 默认非管理员
         user.setCreatedAt(LocalDateTime.now());
@@ -614,6 +614,12 @@ public class AuthController {
                 .username(user.getUsername())
                 .realName(user.getRealName())
                 .userId(user.getId())
+                // 前端侧边栏靠这两个值区分"内部管理员"与"客户管理员"，
+                // 不要只发一个 isAdmin —— 单看它无法判断作用范围
+                .userType(user.getUserType())
+                .isAdmin(user.getIsAdmin())
+                // 批量导入的账号带着统一初始密码，登录后必须先去改密码
+                .mustChangePassword(user.mustChangePassword())
                 .requirePhoneVerify(false)
                 .build();
     }

@@ -1,17 +1,20 @@
 package com.example.springai.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.springai.common.ErrorCode;
 import com.example.springai.common.PageResult;
 import com.example.springai.common.Response;
 import com.example.springai.dto.*;
 import com.example.springai.entity.SysUser;
 import com.example.springai.service.LoginSecurityServiceI;
+import com.example.springai.service.UserImportServiceI;
 import com.example.springai.service.UserServiceI;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -38,6 +41,9 @@ public class UserController {
     @Autowired
     private LoginSecurityServiceI loginSecurityService;
 
+    @Autowired
+    private UserImportServiceI userImportService;
+
     // ==================== 以下要求 ADMIN ====================
 
     @GetMapping
@@ -46,9 +52,8 @@ public class UserController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer status,
-            @RequestParam(required = false) Long departmentId) {
-        Page<UserListDTO> p = userService.listUsers(page, size, keyword, status, departmentId);
+            @RequestParam(required = false) Integer status) {
+        Page<UserListDTO> p = userService.listUsers(page, size, keyword, status);
         return Response.success(PageResult.of(p.getRecords(), p.getTotal(), p.getCurrent(), p.getSize()));
     }
 
@@ -102,6 +107,28 @@ public class UserController {
             @RequestParam(required = false) String keyword) {
         Page<UserListDTO> p = userService.searchEmployees(page, size, keyword);
         return Response.success(PageResult.of(p.getRecords(), p.getTotal(), p.getCurrent(), p.getSize()));
+    }
+
+    /**
+     * xlsx 批量导入用户（给客户公司开一批账号）。
+     *
+     * <p>只给内部管理员：这是「开户」动作。客户方不该能给自己公司加人 ——
+     * 那等于绕过伯伯公司的开户与计费；而且导入的账号带统一初始密码，
+     * 放开给客户管理员就是让他们自己造一批共享口令的账号。
+     *
+     * <p>{@code companyId} 声明成可选、在方法体里校验：漏传时希望给出
+     * "请选择要导入到的客户公司"这种能照着做的话，而不是 Spring 默认的
+     * MissingServletRequestParameterException。
+     */
+    @PostMapping("/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Response<UserImportResultDTO> importUsers(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) Long companyId) {
+        if (companyId == null) {
+            return Response.fail(ErrorCode.BAD_REQUEST, "请选择要导入到的客户公司");
+        }
+        return Response.success(userImportService.importUsers(file, companyId));
     }
 
     // ==================== 以下只要求已登录 ====================

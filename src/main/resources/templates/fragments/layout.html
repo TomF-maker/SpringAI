@@ -25,8 +25,18 @@
         (function () {
             var authed = !!localStorage.getItem('token');
             document.body.classList.toggle('is-authed', authed);
-            // 管理员一定是已登录的，所以 is-admin 蕴含 is-authed
-            document.body.classList.toggle('is-admin', localStorage.getItem('username') === 'admin');
+            // 管理员一定是已登录的，所以 is-admin 蕴含 is-authed。
+            // username === 'admin' 是历史判定，保留它兼容老会话；
+            // 新登录的会话带 isAdmin，内部管理员换成别的用户名也能被认出来。
+            var isAdmin = localStorage.getItem('username') === 'admin'
+                || localStorage.getItem('isAdmin') === '1';
+            document.body.classList.toggle('is-admin', isAdmin);
+            // 客户公司管理员 = 外部用户(userType=2) + isAdmin。
+            // 与 is-admin 互斥：内部管理员和客户管理员看到的是两套完全不同的菜单，
+            // 不能互相污染 —— 客户管理员绝不该看到用户管理、全部客户文档那些入口。
+            var isClientAdmin = localStorage.getItem('userType') === '2'
+                && localStorage.getItem('isAdmin') === '1';
+            document.body.classList.toggle('is-client-admin', isClientAdmin);
         })();
     </script>
 
@@ -52,12 +62,22 @@
                 <i class="bi bi-clock-history"></i> <span>历史记录</span>
             </a>
         </li>
-        <!-- ---------- 管理功能（仅 admin） ---------- -->
-        <li class="nav-section-label" data-admin-only aria-hidden="true">管理</li>
-        <li class="nav-divider" data-admin-only role="separator"></li>
-        <!-- 文档管理归到管理功能：上传/删除会立刻影响所有人的检索结果，
-             让普通用户进来改知识库风险太大。普通用户只有「智能问答 + 历史记录」。 -->
-        <li class="nav-item" data-admin-only>
+        <!-- 客户公司管理员专属：只看得到本公司的使用情况，看不到内部管理菜单 -->
+        <li class="nav-item" data-client-admin-only>
+            <a class="nav-link" th:classappend="${active == 'client-admin'} ? 'active' : ''" href="/client-admin">
+                <i class="bi bi-building"></i> <span>客户看板</span>
+            </a>
+        </li>
+        <!-- ---------- 管理功能（内部管理员；文档管理对客户管理员也开放） ---------- -->
+        <!-- 分组标题与分隔线同时带 client-admin-only，否则客户管理员会看到
+             一个没有标题、只剩「文档管理」一条的悬空分组。 -->
+        <li class="nav-section-label" data-admin-only data-client-admin-only aria-hidden="true">管理</li>
+        <li class="nav-divider" data-admin-only data-client-admin-only role="separator"></li>
+        <!-- 文档管理：上传/删除会立刻影响检索结果，普通用户进来风险太大。
+             客户管理员也放行，但他的作用域被 service/controller 收口到本公司
+             （上传强制 clientId=本公司、isPublic=false；删除只能删本公司的）。
+             普通用户依然只有「智能问答 + 历史记录」。 -->
+        <li class="nav-item" data-admin-only data-client-admin-only>
             <a class="nav-link" th:classappend="${active == 'documents'} ? 'active' : ''" href="/documents">
                 <i class="bi bi-file-earmark-text"></i> <span>文档管理</span>
             </a>
@@ -75,11 +95,6 @@
         <li class="nav-item" data-admin-only>
             <a class="nav-link" th:classappend="${active == 'users'} ? 'active' : ''" href="/users">
                 <i class="bi bi-people"></i> <span>用户管理</span>
-            </a>
-        </li>
-        <li class="nav-item" data-admin-only>
-            <a class="nav-link" th:classappend="${active == 'departments'} ? 'active' : ''" href="/departments">
-                <i class="bi bi-diagram-3"></i> <span>部门管理</span>
             </a>
         </li>
         <li class="nav-item" data-admin-only>

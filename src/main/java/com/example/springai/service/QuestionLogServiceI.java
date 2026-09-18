@@ -19,12 +19,16 @@ public interface QuestionLogServiceI {
     /**
      * 记录一次提问。任何异常都会被吞掉并记日志 —— 埋点坏了不能影响业务。
      *
+     * <p>没有 departmentId 参数：部门维度已去掉（见 doc/商业化方案.md「A2. 去掉部门维度」），
+     * 它原先传进来也从没被写入或统计过，是个死参数。
+     * 看板的提问统计一律按人/按客户切，不按部门切。
+     *
      * @param clientIp 完整客户端 IP（不是风控用的 /24 网段前缀），可为 null。
      *                 <b>必须由调用方在请求线程上取好再传进来</b>：本方法虽在请求线程
      *                 被调用，但归属地回填发生在工作线程上，那里读不到 request。
      * @return 记录 id；写入失败时返回 null
      */
-    Long record(String question, Long userId, Long departmentId, String conversationId,
+    Long record(String question, Long userId, String conversationId,
                 String hitType, int retrievedCount, String toolName, String clientIp);
 
     /** 异步补写耗时并置为 COMPLETED。 */

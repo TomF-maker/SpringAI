@@ -39,8 +39,16 @@ public class KbDocument {
      */
     private Long clientId;
 
-    private Integer visibleType;   // 1=本部门 2=全公司 3=指定部门
-    private Integer isPublic;      // 0=内部 1=公开
+    /**
+     * 可见性类型（1=本部门 2=全公司 3=指定部门）。**已废弃**（见 doc/商业化方案.md
+     * 「A2. 去掉部门维度」）：列是 NOT NULL，写入端仍要填一个值，但它不参与任何权限判断。
+     * 现在决定可见范围的只有 {@link #clientId} 与 {@link #isPublic} 两档。**不要删列** ——
+     * 涉及存量与回滚，彻底删列要等确认没有回滚需求之后。
+     */
+    private Integer visibleType;
+
+    /** 0=内部（仅本公司可见） 1=公开（所有客户可见） */
+    private Integer isPublic;
     private Integer status;        // 0=待处理 1=已向量化 2=失败
     private Integer chunkCount;
     private Integer viewCount;

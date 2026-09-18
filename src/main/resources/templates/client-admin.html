@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>客户看板 - 采购智能助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
+    <link rel="stylesheet" href="/css/app.css?v=5">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        /* 本页样式自包含，只依赖 app.css 的 CSS 变量（与 dashboard.html 同一套令牌） */
+        .page-head {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .page-head h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--pa-ink, #0A2540);
+            margin: 0;
+            letter-spacing: -0.3px;
+        }
+        .page-head .sub {
+            font-size: 13px;
+            color: var(--pa-text-muted, #8898AA);
+            margin-top: 4px;
+        }
+        .range-select {
+            border: 1px solid var(--pa-border, #E5E7EB);
+            border-radius: var(--pa-radius, 8px);
+            padding: 7px 12px;
+            font-size: 13px;
+            color: var(--pa-text-soft, #425466);
+            background: #fff;
+            outline: none;
+        }
+        .range-select:focus { border-color: var(--pa-primary, #635BFF); }
+
+        .stat-card {
+            background: var(--pa-surface, #fff);
+            border-radius: var(--pa-radius-lg);
+            padding: 20px 18px;
+            box-shadow: var(--pa-shadow-sm);
+            border: 1px solid var(--pa-border, #E5E7EB);
+            position: relative;
+            overflow: hidden;
+            height: 100%;
+        }
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 3px;
+            background: linear-gradient(180deg, #635BFF 0%, #4F47D6 100%);
+            opacity: 0;
+            transition: opacity 0.22s ease;
+        }
+        .stat-card:hover::before { opacity: 1; }
+        .stat-card .number {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--pa-ink, #0A2540);
+            font-variant-numeric: tabular-nums;
+            line-height: 1.2;
+            letter-spacing: -0.4px;
+        }
+        .stat-card .label {
+            font-size: 12px;
+            color: var(--pa-text-muted, #8898AA);
+            margin-top: 6px;
+            font-weight: 500;
+        }
+        .stat-card .icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: var(--pa-primary-soft, #F0EFFF);
+            color: var(--pa-primary, #635BFF);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 17px;
+            margin-bottom: 10px;
+        }
+
+        .panel {
+            background: var(--pa-surface, #fff);
+            border-radius: var(--pa-radius-lg);
+            padding: 20px 22px;
+            box-shadow: var(--pa-shadow-sm);
+            border: 1px solid var(--pa-border, #E5E7EB);
+            height: 100%;
+        }
+        .panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--pa-ink, #0A2540);
+            margin: 0 0 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .panel-title i { color: var(--pa-primary, #635BFF); }
+
+        .rank-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px dashed var(--pa-border, #E5E7EB);
+            font-size: 13px;
+        }
+        .rank-row:last-child { border-bottom: none; }
+        .rank-idx {
+            flex: 0 0 22px;
+            height: 22px;
+            border-radius: 6px;
+            background: var(--pa-primary-soft, #F0EFFF);
+            color: var(--pa-primary-700, #4F47D6);
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .rank-idx.top3 { background: var(--pa-primary, #635BFF); color: #fff; }
+        .rank-text {
+            flex: 1;
+            color: var(--pa-text-soft, #425466);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .rank-count {
+            font-weight: 600;
+            color: var(--pa-ink, #0A2540);
+            font-variant-numeric: tabular-nums;
+        }
+        .empty-tip {
+            text-align: center;
+            color: var(--pa-text-faint, #B0BCC8);
+            font-size: 13px;
+            padding: 28px 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <!-- 侧边栏（共享片段，菜单顺序唯一定义处） -->
+    <div th:replace="~{fragments/layout :: sidebar('client-admin')}"></div>
+    <!-- 移动端遮罩（必须是 .sidebar 的兄弟节点） -->
+    <div th:replace="~{fragments/layout :: backdrop}"></div>
+
+    <!-- 主内容 -->
+    <div class="main-content">
+        <div th:replace="~{fragments/layout :: topbar('🏢 客户看板')}"></div>
+
+        <div class="page-head">
+            <div>
+                <h1 id="companyTitle">本公司使用概览</h1>
+                <div class="sub">只统计贵公司员工的提问，不包含其他客户的数据</div>
+            </div>
+            <select class="range-select" id="daysSelect">
+                <option value="7">近 7 天</option>
+                <option value="30" selected>近 30 天</option>
+                <option value="90">近 90 天</option>
+            </select>
+        </div>
+
+        <!-- 数据不可用提示（埋点表未建 / 账号未绑定公司） -->
+        <div class="alert alert-warning d-none" id="unavailableTip" role="alert"></div>
+
+        <!-- 概览卡片 -->
+        <div class="row g-3" id="statRow">
+            <div class="col-6 col-lg-2">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-chat-square-text"></i></div>
+                    <div class="number" id="statTotal">-</div>
+                    <div class="label">提问总数</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-2">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-calendar-day"></i></div>
+                    <div class="number" id="statToday">-</div>
+                    <div class="label">今日提问</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-2">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-people"></i></div>
+                    <div class="number" id="statActiveUsers">-</div>
+                    <div class="label">活跃员工</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-2">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-person-lines-fill"></i></div>
+                    <div class="number" id="statAvg">-</div>
+                    <div class="label">人均提问</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-2">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-folder2-open"></i></div>
+                    <div class="number" id="statConversations">-</div>
+                    <div class="label">会话数</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-2">
+                <div class="stat-card">
+                    <div class="icon"><i class="bi bi-bullseye"></i></div>
+                    <div class="number" id="statHitRate">-</div>
+                    <div class="label">文档命中率</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 趋势图 -->
+        <div class="row g-3 mt-1">
+            <div class="col-12">
+                <div class="panel">
+                    <h2 class="panel-title"><i class="bi bi-graph-up"></i> 提问趋势</h2>
+                    <div id="trendChart" style="height:280px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 热门问题 + 员工活跃榜 -->
+        <div class="row g-3 mt-1">
+            <div class="col-12 col-lg-6">
+                <div class="panel">
+                    <h2 class="panel-title"><i class="bi bi-fire"></i> 热门问题</h2>
+                    <div id="hotList"><div class="empty-tip">暂无数据</div></div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="panel">
+                    <h2 class="panel-title"><i class="bi bi-trophy"></i> 员工活跃榜</h2>
+                    <div id="userList"><div class="empty-tip">暂无数据</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 知识库缺口提示：客户最该关心的一句话 -->
+        <div class="row g-3 mt-1 mb-3">
+            <div class="col-12">
+                <div class="panel">
+                    <h2 class="panel-title"><i class="bi bi-info-circle"></i> 说明</h2>
+                    <div style="font-size:13px;color:var(--pa-text-soft,#425466);line-height:1.7;">
+                        「文档命中率」= 检索到资料并回答的次数 ÷ 需要检索的提问次数。
+                        低于 100% 的部分是「<span id="gapCount">0</span> 次没能从现有资料中找到答案」，
+                        说明这部分问题对应的资料还没上传 —— 可以联系我们补充。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/js/app.js?v=5"></script>
+<script>
+    // ================================================================
+    // 客户看板：所有数据来自 /api/client-admin/stats
+    // 该接口的 clientId 完全取自服务端登录用户，前端传不了、也不需要传 ——
+    // 所以这里压根没有 clientId 参数，改 URL 也看不到别家数据。
+    // ================================================================
+    let trendChart = null;
+
+    /**
+     * 转义后再拼进 innerHTML。
+     * 问题原文和员工姓名都是用户产生的数据，必须走这里 ——
+     * 有人把名字改成 <img src=x onerror=...> 就能在管理员页面上执行脚本。
+     */
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    async function loadStats() {
+        const days = document.getElementById('daysSelect').value;
+        try {
+            const resp = await fetch('/api/client-admin/stats?days=' + days);
+            const envelope = await resp.json();
+
+            if (!envelope.success) {
+                // 403/无权限时后端走统一信封返回 errMessage，这里直接展示，
+                // 不要再套一层"加载失败"把真实原因盖掉。
+                showUnavailable(envelope.errMessage || '暂无权限查看数据');
+                return;
+            }
+            render(envelope.data);
+        } catch (err) {
+            console.error('客户看板加载失败', err);
+            showUnavailable('加载失败：' + err.message);
+        }
+    }
+
+    function showUnavailable(message) {
+        const tip = document.getElementById('unavailableTip');
+        tip.textContent = message;
+        tip.classList.remove('d-none');
+    }
+
+    function render(data) {
+        document.getElementById('unavailableTip').classList.add('d-none');
+        if (!data) return;
+
+        if (data.unavailable) {
+            showUnavailable('统计数据暂时不可用，请稍后再试或联系管理员。');
+            return;
+        }
+        if (data.companyName) {
+            document.getElementById('companyTitle').textContent = data.companyName + ' · 使用概览';
+        }
+
+        document.getElementById('statTotal').textContent = data.totalQuestions;
+        document.getElementById('statToday').textContent = data.todayQuestions;
+        document.getElementById('statActiveUsers').textContent = data.activeUsers;
+        document.getElementById('statAvg').textContent = data.avgQuestionsPerUser;
+        document.getElementById('statConversations').textContent = data.totalConversations;
+        document.getElementById('statHitRate').textContent = data.hitRate + '%';
+        document.getElementById('gapCount').textContent = data.kbGapCount;
+
+        renderTrend(data.dailyQuestions || []);
+        renderRank('hotList', (data.hotQuestions || []).map(h => ({ text: h.question, count: h.count })));
+        renderRank('userList', (data.activeUserRank || []).map(u => ({ text: u.name, count: u.count })));
+    }
+
+    function renderTrend(points) {
+        const el = document.getElementById('trendChart');
+        if (!trendChart) trendChart = echarts.init(el);
+        trendChart.setOption({
+            grid: { left: 40, right: 16, top: 24, bottom: 32 },
+            tooltip: { trigger: 'axis' },
+            xAxis: {
+                type: 'category',
+                data: points.map(p => p.date),
+                axisLine: { lineStyle: { color: '#E5E7EB' } },
+                axisLabel: { color: '#8898AA', fontSize: 11 }
+            },
+            yAxis: {
+                type: 'value',
+                splitLine: { lineStyle: { color: '#F1F3F7' } },
+                axisLabel: { color: '#8898AA', fontSize: 11 }
+            },
+            series: [{
+                name: '提问数',
+                type: 'line',
+                smooth: true,
+                symbolSize: 5,
+                data: points.map(p => p.count),
+                itemStyle: { color: '#635BFF' },
+                lineStyle: { width: 2, color: '#635BFF' },
+                areaStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: 'rgba(99,91,255,0.22)' },
+                        { offset: 1, color: 'rgba(99,91,255,0.02)' }
+                    ])
+                }
+            }]
+        });
+        trendChart.resize();
+    }
+
+    function renderRank(containerId, rows) {
+        const box = document.getElementById(containerId);
+        if (!rows.length) {
+            box.innerHTML = '<div class="empty-tip">暂无数据</div>';
+            return;
+        }
+        box.innerHTML = rows.map(function (r, i) {
+            return '<div class="rank-row">'
+                + '<span class="rank-idx ' + (i < 3 ? 'top3' : '') + '">' + (i + 1) + '</span>'
+                + '<span class="rank-text" title="' + esc(r.text) + '">' + esc(r.text) + '</span>'
+                + '<span class="rank-count">' + r.count + ' 次</span>'
+                + '</div>';
+        }).join('');
+    }
+
+    document.getElementById('daysSelect').addEventListener('change', loadStats);
+
+    // 窗口尺寸变化时把图画回去（ECharts 不会自己跟随）
+    window.addEventListener('resize', function () {
+        if (trendChart) trendChart.resize();
+    });
+
+    loadStats();
+</script>
+</body>
+</html>

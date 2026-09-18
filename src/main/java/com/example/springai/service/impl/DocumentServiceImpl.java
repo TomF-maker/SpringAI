@@ -2,6 +2,7 @@ package com.example.springai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.springai.common.ErrorCode;
 import com.example.springai.dto.DailyUpload;
 import com.example.springai.dto.DocumentListDTO;
 import com.example.springai.dto.DocumentUploadDTO;
@@ -9,13 +10,12 @@ import com.example.springai.dto.StatisticsDTO;
 import com.example.springai.entity.KbDocument;
 import com.example.springai.entity.KbDocumentLog;
 import com.example.springai.entity.SysCompany;
-import com.example.springai.entity.SysDepartment;
 import com.example.springai.entity.SysUser;
+import com.example.springai.exception.BizException;
 import com.example.springai.mapper.KbDocumentLogMapper;
 import com.example.springai.mapper.KbDocumentMapper;
-import com.example.springai.mapper.SysDepartmentMapper;
-import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.mapper.SysCompanyMapper;
+import com.example.springai.mapper.SysUserMapper;
 import com.example.springai.service.DocumentServiceI;
 import com.example.springai.service.ExcelDocumentServiceI;
 import com.example.springai.service.OcrServiceI;
@@ -69,6 +69,16 @@ public class DocumentServiceImpl implements DocumentServiceI {
     private static final int PARALLEL_BATCHES = 1;
     private static final int MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
+    /**
+     * 文档归属部门写入的常量占位。
+     *
+     * <p>{@code kb_document.department_id} 是 NOT NULL 且没有默认值，必须写一个值；
+     * 而部门维度已经废弃（见 doc/商业化方案.md「A2. 去掉部门维度」），
+     * 不再按表单/用户取值，一律写这个常量。**不要删列** —— 涉及存量数据与回滚，
+     * 彻底删列要等确认没有回滚需求之后。
+     */
+    private static final Long LEGACY_DEPARTMENT_ID = 1L;
+
     @Autowired
     private VectorStore vectorStore;
 
@@ -95,9 +105,6 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
     @Autowired
     private SysUserMapper userMapper;
-
-    @Autowired
-    private SysDepartmentMapper departmentMapper;
 
     @Autowired
     private SysCompanyMapper companyMapper;
@@ -226,7 +233,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
         doc.setFileSize(file.getSize());
         doc.setFileType(getFileExtension(fileName));
         doc.setUploaderId(currentUserId);
-        doc.setDepartmentId(metadata.getDepartmentId());
+        doc.setDepartmentId(resolveDepartmentId(metadata.getDepartmentId()));
         // 客户公司隔离：null = 通用方法论（所有客户可见）
         doc.setClientId(metadata.getClientId());
         doc.setVisibleType(metadata.getVisibleType() != null ? metadata.getVisibleType() : 1);
@@ -260,6 +267,17 @@ public class DocumentServiceImpl implements DocumentServiceI {
         logDocumentAction(doc.getId(), currentUserId, "UPLOAD");
         log.info("✅ 文档上传成功: {}", doc.getTitle());
         return doc;
+    }
+
+    @Override
+    public KbDocument uploadDocumentBytes(byte[] content, String originalName,
+                                          DocumentUploadDTO metadata, Long currentUserId) throws IOException {
+        // 只是把字节数组包成 MultipartFile 后转调 uploadDocument ——
+        // 校验、入库、向量化、状态标记全部复用同一条路径。
+        // **不要在这里另写一套**：那等于把"客户隔离收口"之类的规则复制一份，
+        // 两份实现分叉出来的那条就是漏洞。
+        return uploadDocument(new ByteArrayMultipartFile(content, originalName, originalName),
+                metadata, currentUserId);
     }
 
     // ==================== 从 URL 上传 ====================
@@ -319,7 +337,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
         doc.setFileSize((long) content.length);
         doc.setFileType(getFileExtension(fileName));
         doc.setUploaderId(currentUserId);
-        doc.setDepartmentId(metadata.getDepartmentId());
+        doc.setDepartmentId(resolveDepartmentId(metadata.getDepartmentId()));
         // 客户公司隔离：null = 通用方法论（所有客户可见）
         doc.setClientId(metadata.getClientId());
         doc.setVisibleType(metadata.getVisibleType() != null ? metadata.getVisibleType() : 1);
@@ -355,7 +373,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
     // ==================== 文档列表 ====================
     @Override
-    public Page<DocumentListDTO> listDocuments(int page, int size, String keyword, Long departmentId, Long clientId, Long currentUserId) {
+    public Page<DocumentListDTO> listDocuments(int page, int size, String keyword, Long clientId, Long currentUserId) {
         SysUser user = userMapper.selectById(currentUserId);
         if (user == null) throw new RuntimeException("用户不存在");
 
@@ -363,27 +381,26 @@ public class DocumentServiceImpl implements DocumentServiceI {
         if (StringUtils.hasText(keyword)) {
             wrapper.and(w -> w.like("title", keyword).or().like("file_name", keyword));
         }
-        if (departmentId != null) {
-            wrapper.eq("department_id", departmentId);
-        }
 
         // 权限过滤 + 客户公司隔离
-        //   管理员      → 看所有（可按 clientId 参数筛到某家客户的专属 + 通用）
-        //   内部用户    → 伯伯咨询顾问，能看所有客户的文档，保留原有部门/公开可见性
-        //   外部用户    → 客户公司员工，只能看本公司的全部文档 + 通用且公开的文档
+        //   内部账号（内部管理员 / 咨询顾问）
+        //                 → 跨所有客户看全部（可按 clientId 参数筛到某家客户的专属 + 通用）
+        //   外部用户（客户公司员工 / 客户管理员）
+        //                 → 只能看本公司的全部文档 + 通用的公开文档
         //   （A 客户付费做的方案，B 客户绝不能看到 —— 咨询行业铁律）
-        if (user.getIsAdmin() == 1) {
+        //
+        // **必须判 !isExternal() 而不是 isAdmin == 1**：客户公司的管理员用同一个
+        // is_admin 标志位，只看这一列他会走进"看所有客户"的分支，直接列出别家的文档。
+        //
+        // 2026-09-18 统一：内部管理员与咨询顾问原本是两条不同分支（后者只列
+        // "本人上传 + 公开"），结果是"问答里引用了某文档、列表里找不到、点下载还 403"。
+        // 现在两类内部账号合为一条，与检索侧 internalUserFilter（不过滤）、
+        // 下载侧 hasPermission 保持同一口径。
+        if (!user.isExternal()) {
             if (clientId != null) {
                 wrapper.and(w -> w.isNull("client_id").or().eq("client_id", clientId));
             }
-            // clientId == null：管理员看所有，不加限制
-        } else if (user.getUserType() != null && user.getUserType() == 1) {
-            // 伯伯咨询顾问（内部用户）：能看所有客户的文档，保留原有部门/公开可见性
-            wrapper.and(w -> w
-                    .eq("uploader_id", currentUserId)
-                    .or().eq("department_id", user.getDepartmentId())
-                    .or().eq("is_public", 1)
-            );
+            // clientId == null：内部账号不加限制，看所有客户的文档
         } else {
             // 客户公司员工（外部用户）：client_id 隔离
             // 看自己公司的全部文档 + 通用且公开的文档
@@ -404,30 +421,14 @@ public class DocumentServiceImpl implements DocumentServiceI {
             // 上传人姓名
             SysUser uploader = userMapper.selectById(doc.getUploaderId());
             if (uploader != null) dto.setUploaderName(uploader.getRealName());
-            // 部门名称
-            SysDepartment dept = departmentMapper.selectById(doc.getDepartmentId());
-            if (dept != null) dto.setDepartmentName(dept.getDeptName());
             // 客户公司名（null=通用方法论）
             if (doc.getClientId() != null) {
                 SysCompany company = companyMapper.selectById(doc.getClientId());
                 if (company != null) dto.setClientName(company.getCompanyName());
             }
-            // 可见性文本
-            String visibleText;
-            switch (doc.getVisibleType()) {
-                case 1:
-                    visibleText = "本部门";
-                    break;
-                case 2:
-                    visibleText = "全公司";
-                    break;
-                case 3:
-                    visibleText = "指定部门";
-                    break;
-                default:
-                    visibleText = "未知";
-            }
-            dto.setVisibleText(visibleText);
+            // 归属只有两档：所属客户（clientName）+ 是否公开（isPublic）。
+            // 部门名与"可见性文本"（本部门/全公司/指定部门）已随部门维度一起删掉 ——
+            // visible_type 列仍在库里，但不再参与任何权限判断，也就不该再显示给用户。
             return dto;
         }).collect(Collectors.toList());
         dtoPage.setRecords(dtoList);
@@ -442,7 +443,7 @@ public class DocumentServiceImpl implements DocumentServiceI {
         if (doc == null) throw new RuntimeException("文档不存在");
 
         SysUser user = userMapper.selectById(currentUserId);
-        if (user.getIsAdmin() != 1 && !doc.getUploaderId().equals(currentUserId)) {
+        if (!canDeleteDocument(user, doc, currentUserId)) {
             throw new RuntimeException("无权限删除此文档");
         }
 
@@ -522,6 +523,23 @@ public class DocumentServiceImpl implements DocumentServiceI {
     private boolean isSupportedFileType(String fileName) {
         String ext = getFileExtension(fileName).toLowerCase();
         return Arrays.asList("pdf", "doc", "docx", "xls", "xlsx", "txt", "md").contains(ext);
+    }
+
+    /**
+     * 解析文档的归属部门。**现在只是个常量**，不再查 {@code sys_department}。
+     *
+     * <p>为什么还要有这个方法：{@code kb_document.department_id} 是 NOT NULL 且没有默认值，
+     * 必须写进一个值，所以写入端统一填 {@link #LEGACY_DEPARTMENT_ID}。
+     * 而部门维度已经废弃（见 doc/商业化方案.md「A2. 去掉部门维度」），
+     * 权限判断、检索过滤、界面都不再读它 —— 保留方法名只是为了改动面最小，
+     * 调用点不用动；参数已经没有任何作用。
+     *
+     * <p>原来这里是"取第一个启用中的部门，没有就抛异常"，它把上传链路和部门表绑死了：
+     * 部门表一旦被清空或停用，上传会直接失败，而报错跟"选没选部门"毫无关系。
+     * 等到确认不需要回滚、可以彻底删掉这一列时，这个方法可以连同列一起删。
+     */
+    private Long resolveDepartmentId(Long ignoredDepartmentId) {
+        return LEGACY_DEPARTMENT_ID;
     }
 
     private String getFileExtension(String fileName) {
@@ -635,35 +653,66 @@ public class DocumentServiceImpl implements DocumentServiceI {
         }
     }
 
+    /**
+     * 是否可以删除这份文档。
+     *
+     * <ul>
+     *   <li>内部管理员：可以删任何文档（它管着整个知识库）</li>
+     *   <li><b>客户管理员：只能删本公司的专属文档</b>。两个边界都不能少：
+     *       必须是本公司（不能删别家的），且 clientId 非 null（
+     *       <b>不能删通用文档</b> —— 那是所有客户共用的方法论，
+     *       让一家客户删掉会影响其他所有客户）。</li>
+     *   <li>其他外部用户：只能删自己上传的</li>
+     * </ul>
+     */
+    private boolean canDeleteDocument(SysUser user, KbDocument doc, Long currentUserId) {
+        if (user == null) return false;
+        if (user.isInternalAdmin()) return true;
+        if (user.isClientAdmin()) {
+            return doc.getClientId() != null && doc.getClientId().equals(user.getCompanyId());
+        }
+        return doc.getUploaderId() != null && doc.getUploaderId().equals(currentUserId);
+    }
+
+    @Override
+    public KbDocument getDocumentForUser(Long docId, Long currentUserId) {
+        KbDocument doc = documentMapper.selectById(docId);
+        // 不存在与无权访问返回同一个结果，避免反复试 id 探出哪些文档真实存在
+        if (doc == null || !hasPermission(doc, currentUserId)) {
+            throw new BizException(ErrorCode.NOT_FOUND, "文档不存在");
+        }
+        return doc;
+    }
+
     private boolean hasPermission(KbDocument doc, Long userId) {
         SysUser user = userMapper.selectById(userId);
-        if (user.getIsAdmin() == 1) return true;
 
-        // 客户公司隔离：外部用户（客户公司员工）只能下载本公司 + 通用公开的文档
+        // 内部账号（内部管理员 / 咨询顾问）一律放行 —— 内部就是"能看所有客户的内容"，
+        // 两类账号的区别只在能不能进管理看板，不在文档可见范围。
+        // 这条与检索侧（RagServiceImpl.internalUserFilter 不过滤）、列表侧
+        // （listDocuments 内部分支不加限制）保持同一口径。
+        //
+        // 2026-09-18 统一：这里原本只放行"公开 + 本人上传"，于是会出现
+        // "问答里引用了某份客户文档、列表也能看到、点下载却 403"。
+        // 当时不敢放开的原因是 AuthController.register 建号写的是 userType=1
+        // （放开等于让自助注册的账号下载所有客户的文档）；**该根因已修**
+        // （register 改为 userType=2，xlsx 导入本来也是 2），所以三处口径可以统一。
+        // 注：isInternalAdmin() 已被 !isExternal() 覆盖（前者 = is_admin==1 && !isExternal()），
+        // 不再单独判断，避免两处条件日后走叉。
+        if (!user.isExternal()) return true;
+
+        // 外部用户（客户公司员工 / 客户管理员）：只能下载本公司 + 通用的文档。
         // A 客户的付费方案，B 客户绝不能下载 —— 与检索侧 buildQdrantFilter 同一套规则
-        boolean isInternal = user.getUserType() == null || user.getUserType() == 1;
-        if (!isInternal) {
-            // 外部用户：先过 client_id 闸门
-            if (doc.getClientId() != null && !doc.getClientId().equals(user.getCompanyId())) {
-                // 文档属于其他客户公司 → 拒绝
-                return false;
-            }
-            // 通用文档（clientId == null）或本公司文档 → 继续按可见性判定
-            if (doc.getClientId() != null && doc.getClientId().equals(user.getCompanyId())) {
-                // 本公司专属文档，员工可直接下载
-                return true;
-            }
-            // 通用文档：仅公开可下载
-            return doc.getIsPublic() == 1;
+        if (doc.getClientId() != null && !doc.getClientId().equals(user.getCompanyId())) {
+            // 文档属于其他客户公司 → 拒绝
+            return false;
         }
-
-        // 内部用户（伯伯咨询顾问）：保留原有可见性逻辑，跨所有客户
-        if (doc.getIsPublic() == 1) return true;
-        if (doc.getUploaderId().equals(userId)) return true;
-        if (doc.getDepartmentId() != null && doc.getDepartmentId().equals(user.getDepartmentId())) {
-            return doc.getVisibleType() == 1;
+        if (doc.getClientId() != null && doc.getClientId().equals(user.getCompanyId())) {
+            // 本公司专属文档，员工可直接下载
+            return true;
         }
-        return false;
+        // 通用文档：仅公开可下载
+        return doc.getIsPublic() == 1;
     }
 
     private void logDocumentAction(Long docId, Long userId, String action) {
@@ -887,7 +936,9 @@ public class DocumentServiceImpl implements DocumentServiceI {
             metadata.put("chunk_index", i);
             metadata.put("total_chunks", chunks.size());
             metadata.put("document_id", documentId != null ? documentId : 0);
-            // 关键：存入部门ID
+            // 存入部门ID。**已废弃，只是为了和存量向量的 payload 形状保持一致**：
+            // 它恒为 LEGACY_DEPARTMENT_ID，检索端不再按它过滤
+            // （见 RagServiceImpl.internalUserFilter 与 doc/商业化方案.md「A2」）。
             if (doc.getDepartmentId() != null) {
                 metadata.put("department_id", doc.getDepartmentId().toString());
             }
@@ -895,7 +946,12 @@ public class DocumentServiceImpl implements DocumentServiceI {
             metadata.put("is_public", doc.getIsPublic() != null ? doc.getIsPublic().toString() : "0");
             // 客户公司隔离。null（通用方法论）用 "0" 标记 —— Qdrant 对缺失 key
             // 做 match 命中不到，必须显式存一个值才能在过滤时取到。
-            // 检索时由 RagServiceImpl 按 "client_id == 0 OR client_id == 自己公司" 过滤。
+            //
+            // 【改检索端时注意】这里只覆盖**新上传**的文档。迁移前入库的存量向量
+            // （如《创新辞典》）payload 里**根本没有 client_id 这个键**，
+            // 所以 RagServiceImpl.clientIsolatedFilter 的通用档必须同时判
+            // `is_empty(client_id)` 和 `client_id == "0"` 两种形态，
+            // 只写一种会漏掉另一半（这类漏是静默的：代码看着对、用户就是搜不到）。
             metadata.put("client_id", doc.getClientId() != null ? doc.getClientId().toString() : "0");
             documents.add(new Document(chunks.get(i), metadata));
         }
@@ -972,9 +1028,6 @@ public class DocumentServiceImpl implements DocumentServiceI {
 
         // 用户总数
         dto.setTotalUsers(userMapper.selectCount(null));
-
-        // 部门总数
-        dto.setTotalDepartments(departmentMapper.selectCount(null));
 
         // 近7天上传统计（按日期分组）
         List<Map<String, Object>> dailyList = documentMapper.selectDailyUploads(7);

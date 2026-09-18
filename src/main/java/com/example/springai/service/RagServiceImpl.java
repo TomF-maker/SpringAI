@@ -230,14 +230,13 @@ public class RagServiceImpl implements RagServiceI {
         // 完成回调运行在 reactor 线程上，那时它已经是空的。
         SysUser user = loadCurrentUser();
         final Long userId = user == null ? null : user.getId();
-        final Long departmentId = user == null ? null : user.getDepartmentId();
         final String convId = conversationId;
 
         // 优先匹配本地知识库
         String localAnswer = localKnowledgeService.match(question);
         if (localAnswer != null) {
             log.info("✅ 本地知识库命中，返回流式");
-            Long logId = questionLogService.record(question, userId, departmentId, convId,
+            Long logId = questionLogService.record(question, userId, convId,
                     KbQuestionLog.HIT_LOCAL, 0, null, clientIp);
             questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
             return new AnswerStream(logId, Flux.just(localAnswer));
@@ -247,7 +246,7 @@ public class RagServiceImpl implements RagServiceI {
         List<Document> relevantDocs = retrieveDocuments(question, user);
 
         if (relevantDocs.isEmpty()) {
-            Long logId = questionLogService.record(question, userId, departmentId, convId,
+            Long logId = questionLogService.record(question, userId, convId,
                     KbQuestionLog.HIT_MISS, 0, null, clientIp);
             if (!fallbackEnabled) {
                 questionLogService.markCompleted(logId, System.currentTimeMillis() - startTime);
@@ -270,7 +269,7 @@ public class RagServiceImpl implements RagServiceI {
 
         // 3. 先落库再返回流：客户端中途断开时 doOnComplete 不会触发，
         //    但这条提问已经被记录下来了。
-        final Long logId = questionLogService.record(question, userId, departmentId, convId,
+        final Long logId = questionLogService.record(question, userId, convId,
                 KbQuestionLog.HIT_DOC, relevantDocs.size(), null, clientIp);
 
         // 答案来源标注：流式 meta 帧会带上 sources，前端在回答流之前就拿到来源信息
@@ -445,7 +444,6 @@ public class RagServiceImpl implements RagServiceI {
         try {
             Long logId = questionLogService.record(question,
                     user == null ? null : user.getId(),
-                    user == null ? null : user.getDepartmentId(),
                     conversationId, hitType, retrievedCount, toolName, clientIp);
             questionLogService.markCompleted(logId, elapsedMs);
             // 把 id 带出去：前端提交答案评价时要靠它关联到这次提问
@@ -610,80 +608,88 @@ public class RagServiceImpl implements RagServiceI {
     private Common.Filter buildQdrantFilter(SysUser user) {
         // 匿名（未登录）：仅公开文档。
         // 匿名没有公司归属，看不到任何客户的专属内容，只能看 is_public=1 的公开方法论。
-        // 必须放在最前面判空 —— 下面第一行就是 user.getIsAdmin()，传 null 会直接 NPE。
+        // 必须放在最前面判空 —— 下面就调 user.isInternalAdmin()，传 null 会直接 NPE。
         if (user == null) {
             return publicOnlyFilter();
         }
 
-        // 管理员：无过滤
-        if (user.getIsAdmin() == 1) {
+        // 内部全局管理员（伯伯咨询顾问 + is_admin=1）：无过滤，可见所有客户。
+        // **这里必须判 isInternalAdmin() 而不是 isAdmin == 1** ——
+        // 客户公司的管理员用同一个 is_admin 标志位，只看这一列的话他会命中
+        // "无过滤"直接搜到别的客户的付费方案。作用范围靠 userType 区分。
+        if (user.isInternalAdmin()) {
             return null;
         }
 
         // 内部用户（userType=1 或 null，伯伯咨询顾问）：能看所有客户的文档
-        // 保留原有部门/公开可见性 —— 不做 client_id 限制（他们是做咨询的人，要看所有客户的内容）
-        if (user.getUserType() == null || user.getUserType() == 1) {
+        // 客户管理员（外部 + is_admin=1）走不到这里，会被下面的客户隔离分支接住。
+        if (!user.isExternal()) {
             return internalUserFilter(user);
         }
 
-        // 外部用户（userType=2，客户公司员工）：客户隔离
-        // 看自己公司的全部文档 + 公开文档
+        // 外部用户（userType=2，客户公司员工 / 客户管理员）：客户隔离
+        // 看自己公司的全部文档 + 公开文档。管理员与否不影响可见范围 ——
+        // 客户管理员只是多一个"看本公司统计"的入口，能搜到的文档和本公司员工完全一样。
         // A 客户的内部文档，B 客户绝不能搜到 —— 咨询行业铁律
         return clientIsolatedFilter(user.getCompanyId());
     }
 
     /**
-     * 内部用户（伯伯咨询顾问）的检索过滤：本部门文档 + 公开文档，跨所有客户。
-     * 与原有逻辑一致，不做 client_id 限制 —— 咨询顾问需要能看到所有客户的内容。
+     * 内部用户（伯伯咨询顾问）的检索过滤：<b>不做任何过滤</b>，返回 null（与内部管理员一致）。
+     *
+     * <p>原来的规则是「{@code department_id == 用户部门} OR {@code is_public == 1}」，
+     * 且用户没有部门时退化成"仅公开文档"。部门维度去掉后（见 doc/商业化方案.md
+     * 「A2. 去掉部门维度」）这条规则必须一起消失，因为它已经说不通了：
+     * <ul>
+     *   <li>咨询顾问本来就是跨客户做事的人，按"本部门"切等于让他们看不到别的部门的客户资料；</li>
+     *   <li>新写入的文档 {@code department_id} 恒为常量 1，留着这个条件等于让
+     *       "能不能搜到"取决于一个常量是否恰好等于自己的部门 id；</li>
+     *   <li>"没部门就仅公开文档"会把无部门的老账号静默降级成只能看通用资料。</li>
+     * </ul>
+     *
+     * <p><b>不做 client_id 限制是刻意的</b>：内部顾问要看所有客户的内容。
+     * 这与客户侧的隔离（{@link #clientIsolatedFilter}）不冲突 ——
+     * 那一条解决的是"客户之间互相看不到"，不是"防内部顾问"。
+     *
+     * <p>参数保留不用：调用点与 {@code buildQdrantFilter} 的其它分支形状保持一致。
      */
     private Common.Filter internalUserFilter(SysUser user) {
-        Long departmentId = user.getDepartmentId();
-        if (departmentId == null || departmentId <= 0) {
-            // 伯伯员工无部门：仅公开文档
-            return publicOnlyFilter();
-        }
-        // OR: department_id == 用户部门 OR is_public == 1
-        Common.FieldCondition deptField = Common.FieldCondition.newBuilder()
-                .setKey("department_id")
-                .setMatch(Common.Match.newBuilder()
-                        .setKeyword(departmentId.toString())
-                        .build())
-                .build();
-        Common.Condition deptCondition = Common.Condition.newBuilder()
-                .setField(deptField)
-                .build();
-
-        Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
-                .setKey("is_public")
-                .setMatch(Common.Match.newBuilder()
-                        .setKeyword("1")
-                        .build())
-                .build();
-        Common.Condition pubCondition = Common.Condition.newBuilder()
-                .setField(pubField)
-                .build();
-
-        return Common.Filter.newBuilder()
-                .addShould(deptCondition)
-                .addShould(pubCondition)
-                .build();
+        return null;
     }
 
     /**
      * 客户公司员工的检索过滤（咨询隔离核心）。
      *
-     * <p>能检索到的范围：
+     * <p>能检索到的范围（两档模型）：
      * <ul>
-     *   <li><b>自己公司的专属文档</b>（{@code client_id == 自己公司}）—— 不论公开/内部，
+     *   <li><b>通用档</b>（{@code client_id} <b>键缺失</b>）—— 知行信自己的通用资料，
+     *       例如《创新辞典》。<b>所有培训客户都能看到</b>，这正是"用我们的资料服务培训客户"
+     *       这个起步形态的基础。</li>
+     *   <li><b>本公司专属档</b>（{@code client_id == 自己公司}）—— 不论公开/内部，
      *       本公司员工都能看到（这是他们付费做出来的方案）。</li>
-     *   <li><b>公开文档</b>（{@code is_public == 1}）—— 含通用方法论和各客户的公开内容。</li>
      * </ul>
      *
-     * <p><b>注意</b>：当前用 {@code is_public == 1} 而不是 {@code client_id == "0" AND is_public == 1}
-     * 作为公开分支，是为了兼容存量数据 —— 迁移前入库的向量 payload 里没有 client_id 这个 key，
-     * 严格按 client_id 过滤会把它们全部漏掉，客户员工会突然搜不到任何旧文档。
-     * 等存量文档全部重新向量化（带上 client_id）之后，可以把这里收紧为
-     * {@code client_id == "0" AND is_public == "1"}，彻底杜绝"A 客户的公开文档被 B 客户看到"。
+     * <p><b>⚠️ 通用档有两种表示，必须同时兼容</b>。这一点是 2026-09-17 用真实上传实测出来的：
+     * <pre>
+     *   存量向量（如《创新辞典》，迁移前入库）  → client_id 这个键**压根不存在**
+     *   新上传的通用文档（DocumentServiceImpl 写入端）→ client_id == "0"
+     * </pre>
+     * 写入端的原设计注释写得很清楚："null（通用方法论）用 '0' 标记 —— Qdrant 对缺失 key
+     * 做 match 命中不到，必须显式存一个值"。但这个约定在检索端从未落实（一直靠
+     * {@code is_public == 1} 兜底），于是两种表示并存至今。
+     *
+     * <p>所以只写 {@code is_empty} 会漏掉**今后所有新上传的通用资料**；
+     * 只写 {@code == "0"} 会漏掉**存量那 178 段**。两种都要有。
+     * <pre>
+     *   client_id is_empty   → 命中 178 段（存量《创新辞典》）
+     *   client_id is_null    → 命中 0 段  （易错：is_null 匹配不到"键缺失"）
+     *   client_id == "0"     → 命中 0 段  （当前库里还没有新格式的通用文档）
+     * </pre>
+     *
+     * <p><b>为什么不再用 {@code is_public == 1} 兜底</b>：
+     * 原来那个宽松分支正是因为"payload 里 client_id 形态不一"才引入的，
+     * 而它同时让"A 客户的公开文档被 B 客户搜到"。通用档判定准确之后这个兜底就多余了，
+     * 去掉它等于顺带堵上了跨客户泄漏。
      *
      * <p>用户没有公司归属（companyId 为 null）时，退化为仅公开文档 —— 同匿名。
      */
@@ -692,33 +698,31 @@ public class RagServiceImpl implements RagServiceI {
             return publicOnlyFilter();
         }
 
-        // 条件1: client_id == 自己公司
-        Common.FieldCondition ownClientField = Common.FieldCondition.newBuilder()
-                .setKey("client_id")
-                .setMatch(Common.Match.newBuilder()
-                        .setKeyword(companyId.toString())
+        Common.Filter.Builder filter = Common.Filter.newBuilder()
+                // 通用档之一：client_id 键缺失（存量向量）
+                .addShould(Common.Condition.newBuilder()
+                        .setIsEmpty(Common.IsEmptyCondition.newBuilder()
+                                .setKey("client_id")
+                                .build())
                         .build())
-                .build();
-        Common.Condition ownClientCond = Common.Condition.newBuilder()
-                .setField(ownClientField)
-                .build();
-
-        // 条件2: is_public == 1（兼容存量数据的宽松公开分支）
-        Common.FieldCondition pubField = Common.FieldCondition.newBuilder()
-                .setKey("is_public")
-                .setMatch(Common.Match.newBuilder()
-                        .setKeyword("1")
+                // 通用档之二：client_id == "0"（写入端对 null 的约定，新上传的通用资料走这个）
+                .addShould(Common.Condition.newBuilder()
+                        .setField(Common.FieldCondition.newBuilder()
+                                .setKey("client_id")
+                                .setMatch(Common.Match.newBuilder().setKeyword("0").build())
+                                .build())
                         .build())
-                .build();
-        Common.Condition pubCond = Common.Condition.newBuilder()
-                .setField(pubField)
-                .build();
+                // 本公司专属档：client_id == 自己公司
+                .addShould(Common.Condition.newBuilder()
+                        .setField(Common.FieldCondition.newBuilder()
+                                .setKey("client_id")
+                                .setMatch(Common.Match.newBuilder()
+                                        .setKeyword(companyId.toString())
+                                        .build())
+                                .build())
+                        .build());
 
-        // OR: 自己公司 OR 公开
-        return Common.Filter.newBuilder()
-                .addShould(ownClientCond)
-                .addShould(pubCond)
-                .build();
+        return filter.build();
     }
 
     /**

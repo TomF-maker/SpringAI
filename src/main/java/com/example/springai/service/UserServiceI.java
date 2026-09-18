@@ -6,7 +6,8 @@ import com.example.springai.entity.SysUser;
 
 public interface UserServiceI {
 
-    Page<UserListDTO> listUsers(int page, int size, String keyword, Integer status, Long departmentId);
+    /** 用户列表。没有部门筛选 —— 部门维度已去掉，见 doc/商业化方案.md「A2. 去掉部门维度」。 */
+    Page<UserListDTO> listUsers(int page, int size, String keyword, Integer status);
 
     UserDetailDTO getUserDetail(Long userId);
 

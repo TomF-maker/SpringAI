@@ -40,11 +40,6 @@
         <view class="stat-num">{{stats.totalUsers}}</view>
         <view class="stat-label">用户总数</view>
       </view>
-      <view class="stat-card">
-        <view class="stat-icon">🏢</view>
-        <view class="stat-num">{{stats.totalDepartments}}</view>
-        <view class="stat-label">部门总数</view>
-      </view>
     </view>
   </view>
 

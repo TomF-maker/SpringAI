@@ -135,4 +135,108 @@ public interface KbQuestionLogMapper extends BaseMapper<KbQuestionLog> {
             WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
             """)
     Map<String, Object> selectGeoCoverage(@Param("days") int days);
+
+    // ==================== 客户维度（客户管理员看板用） ====================
+    //
+    // 归属判定统一走 `user_id IN (SELECT id FROM sys_user WHERE company_id = ?)`。
+    // **不能改用 conversation_id 关联会话的 client_id**：会话的 clientId 是后加的字段，
+    // 存量会话为 NULL，用它过滤会让客户看板上的历史数据凭空消失。
+    // 而提问埋点的 user_id 一直都有，按"这家公司的员工"归属最稳。
+    //
+    // 子查询而不是 JOIN：这些查询都在 kb_question_log 上做分组聚合，
+    // JOIN sys_user 会参与分组、还得靠 GROUP BY 去重，容易写错。
+
+    /** 本公司提问总量 / 活跃员工数 / 会话数。 */
+    @Select("""
+            SELECT COUNT(*) AS total,
+                   COUNT(DISTINCT user_id) AS activeUsers,
+                   COUNT(DISTINCT conversation_id) AS conversations
+            FROM kb_question_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+              AND user_id IN (SELECT id FROM sys_user WHERE company_id = #{clientId})
+            """)
+    Map<String, Object> selectClientTotals(@Param("clientId") Long clientId,
+                                          @Param("days") int days);
+
+    /** 本公司今日提问量。 */
+    @Select("""
+            SELECT COUNT(*)
+            FROM kb_question_log
+            WHERE DATE(created_at) = CURDATE()
+              AND user_id IN (SELECT id FROM sys_user WHERE company_id = #{clientId})
+            """)
+    long selectClientTodayCount(@Param("clientId") Long clientId);
+
+    /** 本公司按天趋势。 */
+    @Select("""
+            SELECT DATE(created_at) AS date,
+                   COUNT(*) AS count,
+                   COUNT(DISTINCT user_id) AS activeUsers
+            FROM kb_question_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+              AND user_id IN (SELECT id FROM sys_user WHERE company_id = #{clientId})
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+            """)
+    List<Map<String, Object>> selectClientDailyQuestions(@Param("clientId") Long clientId,
+                                                         @Param("days") int days);
+
+    /**
+     * 本公司的回答类型分布。
+     *
+     * <p>客户看板上只用来算"命中率"和"知识库缺口"两个数 ——
+     * DOC 是检索到文档、MISS 是没检索到，两者之比就是命中率。
+     */
+    @Select("""
+            SELECT hit_type, COUNT(*) AS count
+            FROM kb_question_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+              AND user_id IN (SELECT id FROM sys_user WHERE company_id = #{clientId})
+            GROUP BY hit_type
+            """)
+    List<Map<String, Object>> selectClientHitTypeDistribution(@Param("clientId") Long clientId,
+                                                              @Param("days") int days);
+
+    /** 本公司热门问题 Top N。 */
+    @Select("""
+            SELECT question_norm AS questionNorm,
+                   MIN(question) AS question,
+                   COUNT(*) AS count,
+                   MAX(created_at) AS lastAskedAt
+            FROM kb_question_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+              AND question_norm IS NOT NULL AND question_norm <> ''
+              AND user_id IN (SELECT id FROM sys_user WHERE company_id = #{clientId})
+            GROUP BY question_norm
+            ORDER BY count DESC, lastAskedAt DESC
+            LIMIT #{limit}
+            """)
+    List<Map<String, Object>> selectClientHotQuestions(@Param("clientId") Long clientId,
+                                                       @Param("days") int days,
+                                                       @Param("limit") int limit);
+
+    /**
+     * 本公司员工活跃榜 Top N。
+     *
+     * <p>这个查询必须 JOIN sys_user 取名字 —— 埋点表只存 user_id，
+     * 光有 id 的榜单对客户没有意义（他们不知道 "17" 是谁）。
+     *
+     * <p>用 LEFT JOIN 而不是 INNER：user_id 可能为 NULL（匿名提问不该出现在这里，
+     * 但万一有就让它以"未知用户"出现，而不是把这条提问整个丢掉导致总数对不上）。
+     */
+    @Select("""
+            SELECT q.user_id AS userId,
+                   COALESCE(u.real_name, u.username, '未知用户') AS userName,
+                   COUNT(*) AS count
+            FROM kb_question_log q
+            LEFT JOIN sys_user u ON u.id = q.user_id
+            WHERE q.created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+              AND q.user_id IN (SELECT id FROM sys_user WHERE company_id = #{clientId})
+            GROUP BY q.user_id, userName
+            ORDER BY count DESC
+            LIMIT #{limit}
+            """)
+    List<Map<String, Object>> selectClientActiveUsers(@Param("clientId") Long clientId,
+                                                      @Param("days") int days,
+                                                      @Param("limit") int limit);
 }

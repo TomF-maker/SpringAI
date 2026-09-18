@@ -123,6 +123,38 @@
 
     installUnauthorizedHandler();
 
+    /**
+     * 全局「必须先改初始密码」处理。
+     *
+     * <p>服务端对这批账号拦下了除改密以外的所有接口（403 + errCode
+     * {@code PWD_CHANGE_REQUIRED}）。前端拿到这个 errCode 就跳去改密页 ——
+     * 否则用户在页面上只会看到到处报错，不知道是为什么。
+     *
+     * <p>这是**兜底**：正常路径是登录响应里带 mustChangePassword、直接跳过去。
+     * 这里覆盖的是"带着旧 token 直接敲页面 URL"这类绕过登录页的情况。
+     */
+    function installPasswordChangeHandler() {
+        var originalFetch = window.fetch;
+        window.fetch = function () {
+            return originalFetch.apply(this, arguments).then(function (response) {
+                // 响应体只能读一次，所以这里 clone 一份来检查 errCode
+                response.clone().json().then(function (body) {
+                    if (body && body.errCode === 'PWD_CHANGE_REQUIRED'
+                        && window.location.pathname !== '/change-password'
+                        && window.location.pathname !== '/login') {
+                        window.location.href = '/change-password';
+                    }
+                }).catch(function () {
+                    // 不是 JSON（二进制下载、SSE 等）就直接忽略 —— 不能因为解析不了
+                    // 就把正常响应也当成错误
+                });
+                return response;
+            });
+        };
+    }
+
+    installPasswordChangeHandler();
+
     // ============================================================
     // 共享分页栏
     //

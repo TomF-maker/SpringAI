@@ -12,8 +12,7 @@ Page({
       processedDocuments: 0,
       pendingDocuments: 0,
       publicDocuments: 0,
-      totalUsers: 0,
-      totalDepartments: 0
+      totalUsers: 0
     },
     qStats: {
       unavailable: false,
@@ -59,8 +58,7 @@ Page({
           processedDocuments: s.processedDocuments || 0,
           pendingDocuments: s.pendingDocuments || 0,
           publicDocuments: s.publicDocuments || 0,
-          totalUsers: s.totalUsers || 0,
-          totalDepartments: s.totalDepartments || 0
+          totalUsers: s.totalUsers || 0
         }
       });
     } catch (e) { /* 局部失败不阻断整体加载 */ }
