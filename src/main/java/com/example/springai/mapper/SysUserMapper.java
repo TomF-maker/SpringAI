@@ -1,12 +1,15 @@
 package com.example.springai.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.example.springai.dto.CompanyMemberDTO;
 import com.example.springai.entity.SysUser;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Mapper
 public interface SysUserMapper extends BaseMapper<SysUser> {
@@ -70,4 +73,50 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
                       @Param("newExpire") LocalDateTime newExpire,
                       @Param("oldType") String oldType,
                       @Param("oldExpire") LocalDateTime oldExpire);
+
+    // ==================== 公司维度（公司管理页 + 席位校验） ====================
+
+    /**
+     * 某家公司的**启用中**账号数 —— 也就是它当前占用的席位数。
+     *
+     * <p>口径必须是"启用中"：客户换人时会把离职的账号停用，如果不释放席位，
+     * 客户就得为了换个员工来找我们改上限。停用即释放是为了让客户自己能动。
+     *
+     * <p>同时用于 A5 的席位校验（{@code UserImportService}）—— 校验与展示必须是
+     * 同一个口径，否则会出现"列表上还有空位但导入说超了"。
+     */
+    @Select("SELECT COUNT(*) FROM sys_user WHERE company_id = #{companyId} AND status = 1")
+    long countActiveByCompany(@Param("companyId") Long companyId);
+
+    /**
+     * 某家公司的员工名单（公司详情用）。
+     *
+     * <p>不返回密码等敏感字段，只取展示需要的列；{@code LIMIT} 是防御性的 ——
+     * 单家公司正常规模是几十人，真出现上千行说明数据有问题，页面也不该被拖死。
+     */
+    @Select("""
+            SELECT id, username, real_name, email, phone, status, is_admin,
+                   last_login_time, must_change_password
+            FROM sys_user
+            WHERE company_id = #{companyId}
+            ORDER BY id ASC
+            LIMIT #{limit}
+            """)
+    List<CompanyMemberDTO> selectMembersByCompany(@Param("companyId") Long companyId,
+                                                 @Param("limit") int limit);
+
+    /**
+     * 某家公司的**客户管理员**（外部 + is_admin=1 + 启用中），用于到期提醒邮件。
+     *
+     * <p>只取这三种状态都满足的：给一个已被禁用的账号发提醒没有意义，
+     * 而内部账号（userType=1）本来就不属于客户公司。
+     */
+    @Select("""
+            SELECT * FROM sys_user
+            WHERE company_id = #{companyId}
+              AND user_type = 2
+              AND is_admin = 1
+              AND status = 1
+            """)
+    List<SysUser> selectClientAdmins(@Param("companyId") Long companyId);
 }

@@ -4,10 +4,10 @@
      直接提示用户用网页端完成手机验证后再来。后续接入 SMS 时把这一段改成表单即可。 -->
 <view class="login-page">
   <view class="brand-mark">
-    <text class="brand-emoji">🛒</text>
+    <text class="brand-emoji">💡</text>
   </view>
-  <view class="title">采购智能助手</view>
-  <view class="subtitle">企业采购知识库 · 智能问答</view>
+  <view class="title">知行信咨询助手</view>
+  <view class="subtitle">企业咨询知识库 · 智能问答</view>
 
   <view class="form-card">
     <view class="field">

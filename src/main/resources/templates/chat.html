@@ -1,9 +1,9 @@
-﻿﻿<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>采购智能助手</title>
+    <title>知行信咨询助手</title>
     <!-- Bootstrap 5 + Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=5">
+    <link rel="stylesheet" href="/css/app.css?v=6">
     <style>
         /* 聊天页专属：主内容区做成竖向 flex，让聊天框自适应填满视口高度。 */
         .main-content {
@@ -377,7 +377,7 @@
         <!-- 聊天容器 -->
         <div class="chat-container">
             <div class="chat-header">
-                🛒 采购智能助手
+                💡 知行信咨询助手
                 <span class="badge">RAG · 天气 · 新闻</span>
                 <button type="button" class="new-chat-btn" id="newChatBtn"
                         title="清空当前对话，重新开始">
@@ -388,7 +388,7 @@
             <div class="chat-messages" id="chatMessages">
                 <div class="message ai">
                     <div class="role-tag">🤖 助手</div>
-                    <div class="content">您好！我是采购智能助手，支持文档上传、智能问答，还可以查询天气和AI新闻。试试问我：“深圳天气怎么样？”或“最近AI有什么新闻？”</div>
+                    <div class="content">您好！我是知行信咨询助手，支持文档上传、智能问答，还可以查询天气和AI新闻。试试问我：“深圳天气怎么样？”或“最近AI有什么新闻？”</div>
                     <div class="time" id="welcomeTime"></div>
                 </div>
                 <div class="typing-indicator" id="typingIndicator">
@@ -408,7 +408,7 @@
 </div>
 
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=5"></script>
+<script src="/js/app.js?v=6"></script>
 <script>
     // ================================================================
     // 1. 认证：允许未登录使用（游客模式，按 IP 每日限额）

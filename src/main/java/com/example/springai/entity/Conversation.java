@@ -2,14 +2,25 @@ package com.example.springai.entity;
 
 import lombok.Data;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 会话文档。
+ *
+ * <p>复合索引 (userId, updatedAt) 对应会话列表的唯一查询形态：按 userId 过滤、
+ * 按 updatedAt 倒序。没有它这个查询就是全集合扫描 —— 会话越多越慢，且是线性的。
+ *
+ * <p>注意：注解只在 {@code spring.data.mongodb.auto-index-creation=true} 时才真正执行，
+ * 否则它只是"想建这个索引"的声明（库里不会有）。这个开关已打开，见 application.yaml。
+ */
 @Data
 @Document(collection = "conversations")
+@CompoundIndex(name = "idx_user_updated", def = "{'userId': 1, 'updatedAt': -1}")
 public class Conversation {
     @Id
     private String id;

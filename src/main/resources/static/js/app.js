@@ -1,5 +1,5 @@
 /* ============================================
-   采购智能助手 - 共享布局脚本
+   知行信咨询助手 - 共享布局脚本
 
    处理：当前用户显示、退出登录、管理菜单显隐、移动端抽屉开关。
 
@@ -41,6 +41,7 @@
         }
 
         initDrawer();
+        loadContractBanner();
     }
 
     function initDrawer() {
@@ -82,6 +83,54 @@
         }
 
         setOpen(false);
+    }
+
+    /**
+     * 服务到期横幅（B1 站内提醒）。
+     *
+     * <p><b>必须自己带 Authorization 头</b>：app.js 在页面内联脚本**之前**执行，
+     * 各页面那段"给 fetch 加 token"的包装器这时还没装上。不加头的话请求会 401，
+     * 而下面 installUnauthorizedHandler 的处置是"清登录态并跳登录页" ——
+     * 等于客户一进页面就被踢出去。
+     *
+     * <p>拿不到/不适合显示时**静默什么都不做**：横幅是提醒，不是功能，
+     * 它失败不该影响页面任何其它部分。
+     */
+    function loadContractBanner() {
+        var box = document.getElementById('contractBanner');
+        if (!box) {
+            return;   // 登录页/大屏这类没有顶栏的页面
+        }
+        var token = localStorage.getItem('token');
+        if (!token) {
+            return;
+        }
+        fetch('/api/company/contract-status', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        }).then(function (r) {
+            return r.ok ? r.json() : null;
+        }).then(function (env) {
+            if (!env || !env.success || !env.data) {
+                return;
+            }
+            var d = env.data;
+            // applicable=false 是内部账号（不挂公司），或公司行缺失
+            if (!d.applicable || !d.expiringSoon) {
+                return;
+            }
+            var when = d.daysLeft === 0 ? '今天到期' : '还剩 ' + d.daysLeft + ' 天';
+            box.className = 'contract-banner' + (d.daysLeft <= 7 ? ' urgent' : '');
+            // 只用 textContent 拼装，不拼 HTML —— 公司名是人填的，塞进 innerHTML 就是 XSS
+            var icon = document.createElement('i');
+            icon.className = 'bi bi-alarm';
+            var text = document.createElement('span');
+            text.textContent = '贵司（' + d.companyName + '）的知识库服务将于 '
+                + d.expireDate + ' 到期（' + when + '），请联系服务商续费，以免影响使用。';
+            box.appendChild(icon);
+            box.appendChild(text);
+        }).catch(function () {
+            // 网络问题就当作没有这条提醒，不打扰用户
+        });
     }
 
     /**

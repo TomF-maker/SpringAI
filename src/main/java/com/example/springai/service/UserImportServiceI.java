@@ -23,4 +23,15 @@ public interface UserImportServiceI {
      * @return 逐行结果
      */
     UserImportResultDTO importUsers(MultipartFile file, Long companyId);
+
+    /**
+     * 生成导入模板（xlsx 字节），供管理员下载后填写再上传。
+     *
+     * <p>为什么要模板：让管理员自己造表头，迟早有人写成"帐号""用户名称"这类认不出的写法，
+     * 而失败提示是"找不到「用户名」列"——他不知道该改成什么。模板由服务端生成，
+     * 表头与解析器共用同一组常量，**不可能对不上**。
+     *
+     * @return xlsx 文件内容；第一个工作表是空白数据页（只有表头），第二个是填写说明
+     */
+    byte[] buildTemplate();
 }

@@ -1,20 +1,10 @@
 package com.example.springai.controller;
 
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 public class PageController {
-
-    /**
-     * 短信总开关。注册页要据此决定渲染「手机号 + 短信验证码」还是
-     * 「邮箱 + 邮箱验证码」表单，所以在服务端就把标志位传下去，
-     * 避免前端先渲染错表单再切换。
-     */
-    @Value("${app.sms.enabled:false}")
-    private boolean smsEnabled;
 
     @GetMapping("/")
     public String root() {
@@ -26,9 +16,16 @@ public class PageController {
         return "login";
     }
 
+    /**
+     * 开通账号说明页（原来的注册页）。
+     *
+     * <p>自助注册已关闭（A4 开户收口，见 {@code AuthController.register}），
+     * 这里只渲染"联系我们开通"的说明 —— 不再往模板传 {@code smsEnabled}：
+     * 那个标志位是给注册表单决定"手机号还是邮箱验证码"用的，表单没了，
+     * 传下去只会让人以为这页还有表单逻辑。
+     */
     @GetMapping("/register")
-    public String register(Model model) {
-        model.addAttribute("smsEnabled", smsEnabled);
+    public String register() {
         return "register";
     }
 
@@ -57,6 +54,18 @@ public class PageController {
     @GetMapping("/documents")
     public String documents() {
         return "documents";
+    }
+
+    /**
+     * 公司管理（开户 / 合约 / 停用 / 指定客户管理员）。
+     *
+     * <p>页面照例在白名单里放行，真正的闸门在 {@code /api/companies}
+     * 的类级 {@code @PreAuthorize("hasRole('ADMIN')")} —— 非内部管理员打开
+     * 只会看到一个空壳。
+     */
+    @GetMapping("/companies")
+    public String companies() {
+        return "companies";
     }
 
     @GetMapping("/profile")

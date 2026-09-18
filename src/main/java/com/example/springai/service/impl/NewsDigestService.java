@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 public class NewsDigestService implements NewsDigestServiceI {
 
     /** 邮件主题里的日期格式。 */
-    private static final String SUBJECT_PREFIX = "【采购智能助手】每日新闻摘要 · ";
+    private static final String SUBJECT_PREFIX = "【知行信咨询助手】每日新闻摘要 · ";
 
     @Autowired
     private KbNewsMapper newsMapper;

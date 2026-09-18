@@ -1,7 +1,7 @@
 {
   "miniprogramRoot": "./",
-  "projectname": "采购智能助手",
-  "description": "采购智能助手小程序端 - 企业级 RAG 知识库问答",
+  "projectname": "知行信咨询助手",
+  "description": "知行信咨询助手小程序端 - 企业级 RAG 知识库问答",
   "appid": "touristappid",
   "setting": {
     "urlCheck": false,

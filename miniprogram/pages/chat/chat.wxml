@@ -22,8 +22,8 @@
 
     <!-- 欢迎 / 空状态 -->
     <view wx:if="{{messages.length === 0}}" class="welcome">
-      <view class="welcome-mark">🛒</view>
-      <view class="welcome-title">您好，我是采购智能助手</view>
+      <view class="welcome-mark">💡</view>
+      <view class="welcome-title">您好，我是知行信咨询助手</view>
       <view class="welcome-sub">支持企业文档问答、天气与新闻查询</view>
       <view class="suggest-list">
         <view class="suggest-item" bindtap="useSuggest" data-q="深圳天气怎么样？">
@@ -32,8 +32,8 @@
         <view class="suggest-item" bindtap="useSuggest" data-q="最近AI有什么新闻？">
           <text>📰 最近AI有什么新闻？</text>
         </view>
-        <view class="suggest-item" bindtap="useSuggest" data-q="采购流程是什么？">
-          <text>📄 采购流程是什么？</text>
+        <view class="suggest-item" bindtap="useSuggest" data-q="如何挖掘客户的隐性需求？">
+          <text>📄 如何挖掘客户的隐性需求？</text>
         </view>
       </view>
     </view>

@@ -41,10 +41,10 @@
     </script>
 
     <div class="sidebar-brand">
-        <span class="brand-mark"><i class="bi bi-cart3"></i></span>
+        <span class="brand-mark"><i class="bi bi-lightbulb"></i></span>
         <span class="brand-text">
-            <span class="brand-name">采购助手</span>
-            <span class="brand-sub">Procurement AI</span>
+            <span class="brand-name">知行信咨询助手</span>
+            <span class="brand-sub">Consulting AI</span>
         </span>
     </div>
     <ul class="nav flex-column">
@@ -97,6 +97,13 @@
                 <i class="bi bi-people"></i> <span>用户管理</span>
             </a>
         </li>
+        <!-- 公司管理：开户、合约（到期日/席位）、停用、指定客户管理员。
+             替代了原来的「部门管理」（部门维度已废弃，见 doc/商业化方案.md A2）。 -->
+        <li class="nav-item" data-admin-only>
+            <a class="nav-link" th:classappend="${active == 'companies'} ? 'active' : ''" href="/companies">
+                <i class="bi bi-building"></i> <span>公司管理</span>
+            </a>
+        </li>
         <li class="nav-item" data-admin-only>
             <a class="nav-link" th:classappend="${active == 'feedback-review'} ? 'active' : ''"
                href="/feedback-review">
@@ -131,32 +138,46 @@
      汉堡按钮与标题包在 .topbar-left 中：.topbar 是 space-between
      的两子元素布局，直接加第三个子元素会把整条顶栏摊开。
      调用：th:replace="~{fragments/layout :: topbar('📄 文档管理')}"
+
+     【外层这个 div 是必要的】fragment 只包含 th:fragment 标在**那个元素自身**，
+     写在它后面的兄弟节点不会被渲染 —— 到期提醒横幅就是因此"代码写了但页面上没有"。
+     所以横幅必须放进 fragment 内部；又不能塞进 .topbar（那会破坏它的两列布局），
+     于是多包一层容器。
      ============================================================ -->
-<div th:fragment="topbar(pageTitle)" class="topbar">
-    <div class="topbar-left">
-        <button type="button" class="drawer-toggle" id="drawerToggle"
-                aria-controls="sidebar" aria-expanded="false" aria-label="打开菜单">
-            <i class="bi bi-list"></i>
-        </button>
-        <span class="topbar-title" id="pageTitle" th:text="${pageTitle}">页面</span>
+<div th:fragment="topbar(pageTitle)">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button type="button" class="drawer-toggle" id="drawerToggle"
+                    aria-controls="sidebar" aria-expanded="false" aria-label="打开菜单">
+                <i class="bi bi-list"></i>
+            </button>
+            <span class="topbar-title" id="pageTitle" th:text="${pageTitle}">页面</span>
+        </div>
+        <!--
+          两种状态的显隐由 CSS 按 body.is-authed 切换，不写 JS：
+          body 上的那个类已经由 sidebar 片段开头的内联脚本尽早写好了
+          （见上面"菜单显隐的判定只有一处"），这里复用它，不再多一处判定。
+          未登录时显示"登录/注册"而不是"退出" —— 游客根本没有可退的登录态。
+        -->
+        <div class="user-info">
+            <span class="auth-only">
+                <i class="bi bi-person-circle"></i>
+                <span id="currentUser">用户</span>
+                <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
+            </span>
+            <span class="guest-only">
+                <a href="/login" class="btn btn-sm btn-primary">登录</a>
+                <!-- 自助注册已关闭（A4），这个链接落到"联系我们开通"说明页 -->
+                <a href="/register" class="btn btn-sm btn-outline-primary">开通账号</a>
+            </span>
+        </div>
     </div>
+
     <!--
-      两种状态的显隐由 CSS 按 body.is-authed 切换，不写 JS：
-      body 上的那个类已经由 sidebar 片段开头的内联脚本尽早写好了
-      （见上面"菜单显隐的判定只有一处"），这里复用它，不再多一处判定。
-      未登录时显示"登录/注册"而不是"退出" —— 游客根本没有可退的登录态。
+      服务到期横幅（B1 站内提醒）。内容由 /js/app.js 填充 —— 到期日与剩余天数
+      是登录态相关的，服务端渲染不出来。默认 d-none，只有确实进入提醒窗口才显示。
     -->
-    <div class="user-info">
-        <span class="auth-only">
-            <i class="bi bi-person-circle"></i>
-            <span id="currentUser">用户</span>
-            <a href="#" class="logout-btn ms-3" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a>
-        </span>
-        <span class="guest-only">
-            <a href="/login" class="btn btn-sm btn-primary">登录</a>
-            <a href="/register" class="btn btn-sm btn-outline-primary">注册</a>
-        </span>
-    </div>
+    <div id="contractBanner" class="contract-banner d-none"></div>
 </div>
 
 </body>

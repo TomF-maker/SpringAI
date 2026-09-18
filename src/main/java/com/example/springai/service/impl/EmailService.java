@@ -47,7 +47,7 @@ public class EmailService implements EmailServiceI {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(fromEmail);
         message.setTo(email);
-        message.setSubject("【采购智能助手】验证码");
+        message.setSubject("【知行信咨询助手】验证码");
         message.setText("您的验证码是：" + code + "，5分钟内有效。请勿泄露给他人。");
         mailSender.send(message);
     }
@@ -93,7 +93,7 @@ public class EmailService implements EmailServiceI {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(fromEmail);
             message.setTo(toEmail);
-            message.setSubject("【采购智能助手】密码已重置");
+            message.setSubject("【知行信咨询助手】密码已重置");
             message.setText(String.format(
                     "%s 您好，\n\n您的账户密码已被管理员重置。\n新密码为：%s\n\n请使用新密码登录系统，并尽快修改为您自己的密码。\n登录地址：http://124.221.251.183:8080/login\n\n如有疑问，请联系管理员。\n\n此邮件由系统自动发送，请勿回复。",
                     username,

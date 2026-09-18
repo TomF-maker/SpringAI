@@ -183,7 +183,7 @@ public class NewsEmailRenderer {
     private void appendFooter(StringBuilder sb) {
         sb.append("<div style=\"margin-top:26px;padding-top:14px;border-top:1px solid #e2e8f0;")
           .append("font-size:12px;color:#94a3b8;\">")
-          .append("本邮件由采购智能助手自动发送，收件人配置见 <code>app.news.recipients</code>。")
+          .append("本邮件由知行信咨询助手自动发送，收件人配置见 <code>app.news.recipients</code>。")
           .append("</div>");
     }
 

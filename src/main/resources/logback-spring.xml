@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  日志落盘规则：按天切分文件 + 只保留 30 天。
+
+  为什么不用 shell 重定向做「按日期生成」：
+  deploy.sh 里 `> app-$(date +%F).log` 这种写法，文件名在**进程启动那一刻**就定死了——
+  进程不重启就一直往"启动那天"的文件里写，跨天不会切分（日志越写越大，日期还是旧的）。
+  真正的按天切分只能由进程内完成，logback 的 TimeBasedRollingPolicy 在零点自动换文件。
+
+  为什么要删过期日志：这台机器磁盘只有 79G，而日志是唯一会"无人值守地长大"的东西。
+  maxHistory=30 让 logback 自己删（进程内定时器，不依赖服务器有没有 cron），
+  但它**只清理自己滚动周期内的归档** —— 实测：磁盘上一个 260 天前的人工归档，
+  重启（cleanHistoryOnStart=true）后依然还在。所以真正的保留保证来自仓库根目录的
+  clean-logs.sh（按 mtime 删 30 天前的日志，crontab 每天 3 点跑），maxHistory 只是第一道。
+
+  日志级别**不在这里配**，统一放在 application.yaml 的 logging.level.*：
+  本文件管"写到哪、留多久"，yaml 管"记多细"。Spring Boot 会在加载本文件之后
+  再把 yaml 里的级别应用上去，两处不冲突。
+-->
+<configuration>
+
+    <!-- 日志目录：默认应用运行目录下的 logs/（生产即 /opt/apps/springai/logs）。
+         用 LOG_DIR 环境变量可以改，方便本地跑测试时写到别处。 -->
+    <property name="LOG_DIR" value="${LOG_DIR:-logs}"/>
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{40} - %msg%n"/>
+
+    <!-- 控制台阈值：生产只打 WARN 及以上。原因是下面那个文件 appender 已经记了全量，
+         控制台再来一份等于同样的内容写两遍磁盘。而启动失败、异常栈都是 ERROR，
+         仍然能在 nohup 的 stdout 里第一时间看到。本地开发改成 DEBUG，看全。 -->
+    <springProfile name="local">
+        <property name="CONSOLE_THRESHOLD" value="DEBUG"/>
+    </springProfile>
+    <springProfile name="!local">
+        <property name="CONSOLE_THRESHOLD" value="WARN"/>
+    </springProfile>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>${CONSOLE_THRESHOLD}</level>
+        </filter>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 当天写在 app.log 里，零点过后它被改名成 app.2026-09-18.log.gz，新的 app.log 继续写 -->
+        <file>${LOG_DIR}/app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/app.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <!-- 只保留 30 天，更早的归档由 logback 自动删除 -->
+            <maxHistory>30</maxHistory>
+            <!-- 总大小上限：某天日志异常暴涨时不至于把磁盘写满（正常量级一天只有几 MB） -->
+            <totalSizeCap>2GB</totalSizeCap>
+            <!-- 启动时先清一次过期归档：进程长期不重启时也能清掉 -->
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+
+</configuration>

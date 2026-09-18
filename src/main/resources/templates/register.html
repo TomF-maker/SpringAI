@@ -3,16 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>注册 - 采购智能助手</title>
+    <title>开通账号 - 知行信咨询助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <!-- SweetAlert2 CSS & JS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!--
+      说明页，而不是注册表单（A4 开户收口）。
+
+      为什么这页不能还留着表单：表单交不了账 —— 后端的 /api/auth/register 已经停用，
+      填完点提交只会拿到一句"不开放自助注册"。留着表单等于让客户白填一遍。
+      反过来，把表单删了**不等于**接口就安全了：真正的约束在 AuthController.register
+      （见 pitfalls.md「前端校验不是约束」），这页只是把话说清楚。
+
+      视觉与 login.html 保持一致（自包含内联样式，不引 app.css）。
+    -->
     <style>
-        /* 100dvh + 内边距：手机上浏览器工具栏伸缩时卡片不会被裁掉，也不会贴边 */
         body {
-            background: var(--pa-bg, #ffffff);
+            background: #ffffff;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -21,46 +27,36 @@
             padding: 24px;
             position: relative;
             overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                         "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            color: #0A2540;
         }
         body::before {
             content: '';
-            position: fixed;
-            top: -20%;
-            right: -10%;
-            width: 70%;
-            height: 70%;
+            position: fixed; top: -20%; right: -10%; width: 70%; height: 70%;
             background: radial-gradient(circle, rgba(99, 91, 255, 0.08) 0%, transparent 60%);
-            pointer-events: none;
-            z-index: 0;
+            pointer-events: none; z-index: 0;
         }
         body::after {
             content: '';
-            position: fixed;
-            bottom: -20%;
-            left: -10%;
-            width: 60%;
-            height: 60%;
+            position: fixed; bottom: -20%; left: -10%; width: 60%; height: 60%;
             background: radial-gradient(circle, rgba(10, 37, 64, 0.05) 0%, transparent 60%);
-            pointer-events: none;
-            z-index: 0;
+            pointer-events: none; z-index: 0;
         }
-        .register-card {
-            position: relative;
-            z-index: 1;
-            max-width: 480px;
-            width: 100%;
+        .notice-card {
+            position: relative; z-index: 1;
+            max-width: 520px; width: 100%;
             padding: 40px 36px 32px;
             background: #fff;
             border-radius: 20px;
+            border: 1px solid #E5E7EB;
             box-shadow:
                 0 24px 60px rgba(10, 37, 64, 0.12),
                 0 8px 24px rgba(10, 37, 64, 0.06),
                 0 0 0 1px rgba(99, 91, 255, 0.04);
-            border: 1px solid var(--pa-border, #E5E7EB);
         }
-        .register-card .brand-mark {
-            width: 56px; height: 56px;
-            margin: 0 auto 18px;
+        .brand-mark {
+            width: 56px; height: 56px; margin: 0 auto 18px;
             border-radius: 14px;
             background: linear-gradient(135deg, #635BFF 0%, #4F47D6 100%);
             color: #fff;
@@ -70,466 +66,89 @@
                 0 8px 24px rgba(99, 91, 255, 0.32),
                 0 2px 6px rgba(99, 91, 255, 0.16);
         }
-        .register-card h3 {
-            text-align: center;
-            margin-bottom: 6px;
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--pa-ink, #0A2540);
-            letter-spacing: -0.4px;
+        h1 {
+            font-size: 21px; font-weight: 700; letter-spacing: -0.3px;
+            text-align: center; margin: 0 0 10px;
         }
-        .register-card .subtitle {
-            text-align: center;
-            color: var(--pa-text-muted, #8898AA);
-            font-size: 13px;
-            margin-bottom: 24px;
-            font-weight: 500;
+        .lede {
+            font-size: 14px; line-height: 1.7; color: #425466;
+            text-align: center; margin: 0 0 22px;
         }
-        .register-card .form-label {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--pa-ink, #0A2540);
-            margin-bottom: 8px;
-            letter-spacing: 0.2px;
+        .steps { list-style: none; padding: 0; margin: 0 0 22px; }
+        .steps li {
+            display: flex; gap: 12px; align-items: flex-start;
+            padding: 12px 0; border-bottom: 1px dashed #EDF0F4;
+            font-size: 13.5px; line-height: 1.65; color: #425466;
         }
-        .register-card .form-control {
-            padding: 11px 14px;
-            font-size: 14px;
-            border: 1px solid var(--pa-border, #E5E7EB);
-            border-radius: 8px;
-            background: var(--pa-surface-2, #FAFBFC);
-            transition: border-color .14s ease, box-shadow .14s ease, background .14s ease;
-            color: var(--pa-ink, #0A2540);
+        .steps li:last-child { border-bottom: none; }
+        .steps .idx {
+            flex: 0 0 22px; height: 22px; border-radius: 50%;
+            background: rgba(99, 91, 255, 0.10); color: #635BFF;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; margin-top: 1px;
         }
-        .register-card .form-control::placeholder { color: var(--pa-text-faint, #B0BCC8); }
-        .register-card .form-control:focus {
-            border-color: var(--pa-primary, #635BFF);
-            box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.14);
-            background: #fff;
-            outline: none;
+        .contact {
+            background: #F7F8FB; border: 1px solid #EDF0F4; border-radius: 12px;
+            padding: 14px 16px; font-size: 13.5px; line-height: 1.8; color: #425466;
+            margin-bottom: 22px;
         }
-        .register-card .btn-primary {
-            width: 100%;
-            padding: 13px 16px;
-            font-size: 15px;
-            font-weight: 600;
-            border-radius: 8px;
-            letter-spacing: 0.3px;
-            background: var(--pa-primary, #635BFF);
-            border-color: var(--pa-primary, #635BFF);
-            color: #fff;
-            box-shadow:
-                0 8px 20px rgba(99, 91, 255, 0.28),
-                0 2px 6px rgba(99, 91, 255, 0.16);
-            transition: all .18s cubic-bezier(0.2, 0.7, 0.2, 1);
+        .contact b { color: #0A2540; }
+        .todo { color: #B54708; }
+        .btn-login {
+            display: block; width: 100%;
+            padding: 12px 16px; border: none; border-radius: 10px;
+            background: #635BFF; color: #fff;
+            font-size: 15px; font-weight: 600;
+            text-align: center; text-decoration: none;
+            box-shadow: 0 8px 20px rgba(99, 91, 255, 0.28);
+            transition: background 0.2s ease;
         }
-        .register-card .btn-primary:hover {
-            background: var(--pa-primary-600, #5A52E0);
-            border-color: var(--pa-primary-600, #5A52E0);
-            transform: translateY(-1px);
-            box-shadow:
-                0 12px 28px rgba(99, 91, 255, 0.36),
-                0 4px 10px rgba(99, 91, 255, 0.20);
-        }
-        .register-card .btn-primary:active { transform: translateY(0); }
-        .register-card .btn-outline-primary {
-            border-color: var(--pa-border-strong, #D1D5DB);
-            color: var(--pa-primary-600, #5A52E0);
-            background: #fff;
-            font-weight: 500;
-            transition: all .14s ease;
-        }
-        .register-card .btn-outline-primary:hover {
-            background: var(--pa-primary-soft, #F0EFFF);
-            border-color: var(--pa-primary, #635BFF);
-            color: var(--pa-primary-700, #4F47D6);
-        }
-        .register-card .links { text-align: center; margin-top: 20px; font-size: 13px; color: var(--pa-text-muted, #8898AA); }
-        .register-card .links a { font-weight: 500; }
-        /* 提示文字、必填星号、信用码等宽字体 */
-        .register-card .form-text {
-            font-size: 12px;
-            color: var(--pa-text-muted, #8898AA);
-            margin-top: 6px;
-        }
-        .register-card .text-danger { color: var(--pa-danger, #D6483D) !important; }
-        .code-row { display: flex; gap: 8px; }
-        .code-row input { flex: 1; }
-        .code-row button { flex-shrink: 0; }
-        .captcha-img {
-            flex-shrink: 0;
-            width: 130px;
-            height: 48px;
-            border-radius: 8px;
-            background: var(--pa-bg-mute, #F4F6F8);
-            cursor: pointer;
-            border: 1px solid var(--pa-border, #E5E7EB);
-            transition: border-color .14s ease;
-        }
-        .captcha-img:hover { border-color: var(--pa-primary, #635BFF); }
-        .register-card .alert {
-            border-radius: 8px;
-            font-size: 13px;
-            padding: 10px 14px;
-            border: 1px solid var(--pa-border, #E5E7EB);
-        }
-        .register-card .alert-danger {
-            background: var(--pa-danger-soft, #FDECEA);
-            border-color: rgba(214, 72, 61, 0.16);
-            color: var(--pa-danger, #D6483D);
-        }
-        @media (max-width: 575.98px) {
-            body { padding: 16px; }
-            .register-card { padding: 32px 22px 24px; border-radius: 16px; }
-            .register-card .brand-mark { width: 52px; height: 52px; font-size: 24px; }
-            .register-card h3 { font-size: 20px; }
+        .btn-login:hover { background: #4F47D6; color: #fff; }
+        .foot {
+            text-align: center; font-size: 12.5px; color: #8898AA;
+            margin-top: 18px; line-height: 1.7;
         }
     </style>
 </head>
 <body>
-<div class="register-card">
-    <div class="brand-mark" aria-hidden="true"><i class="bi bi-person-plus"></i></div>
-    <h3>注册账号</h3>
-    <div class="subtitle">加入采购智能助手</div>
-    <form id="registerForm">
-        <!-- 必填项标注：这里只有「真实姓名」是选填的，不标出来用户只能靠提交试错 -->
-        <p class="form-text mb-3">带 <span class="text-danger">*</span> 的为必填项</p>
 
-        <div class="mb-3">
-            <label class="form-label" for="username">用户名 <span class="text-danger">*</span></label>
-            <input type="text" id="username" class="form-control" placeholder="请设置用户名" required>
-        </div>
+<div class="notice-card">
+    <div class="brand-mark"><i class="bi bi-building"></i></div>
+    <h1>企业客户专用，联系我们开通</h1>
+    <p class="lede">
+        本系统按客户公司开通与计费，<b>不开放自助注册</b>。<br>
+        你的账号由我们统一创建，创建后你会拿到用户名与初始密码。
+    </p>
 
-        <!-- ============ 短信开启：手机号 + 短信验证码 ============ -->
-        <th:block th:if="${smsEnabled}">
-            <div class="mb-3">
-                <label class="form-label" for="phone">手机号 <span class="text-danger">*</span></label>
-                <input type="tel" id="phone" class="form-control" placeholder="请输入手机号"
-                       maxlength="11" inputmode="numeric" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="code">短信验证码 <span class="text-danger">*</span></label>
-                <div class="code-row">
-                    <input type="text" id="code" class="form-control" placeholder="请输入6位验证码"
-                           maxlength="6" inputmode="numeric" required>
-                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary" disabled>获取验证码</button>
-                </div>
-                <div class="form-text">先填好下面的图形验证码，这个按钮才会变亮。</div>
-            </div>
-        </th:block>
+    <ul class="steps">
+        <li>
+            <span class="idx">1</span>
+            <span>联系我们，说明公司名称与统一社会信用代码。</span>
+        </li>
+        <li>
+            <span class="idx">2</span>
+            <span>我们为你建立公司空间，并约定<b>服务到期日</b>与<b>账号数（席位）</b>。</span>
+        </li>
+        <li>
+            <span class="idx">3</span>
+            <span>账号开通后即可登录使用；初始密码需要<b>首次登录时修改</b>。</span>
+        </li>
+    </ul>
 
-        <!-- ============ 短信关闭：邮箱 + 邮箱验证码 ============ -->
-        <th:block th:unless="${smsEnabled}">
-            <div class="mb-3">
-                <label class="form-label" for="email">邮箱 <span class="text-danger">*</span></label>
-                <input type="email" id="email" class="form-control" placeholder="请输入邮箱" required>
-                <!-- 格式提示的落点。用 text-danger 而不是 d-none 起步的 alert，
-                     让"哪里错了"紧贴在出错的那个框下面 -->
-                <div class="form-text text-danger d-none" id="emailError"></div>
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="code">邮箱验证码 <span class="text-danger">*</span></label>
-                <div class="code-row">
-                    <input type="text" id="code" class="form-control" placeholder="请输入6位验证码"
-                           maxlength="6" inputmode="numeric" required>
-                    <button type="button" id="sendCodeBtn" class="btn btn-outline-primary" disabled>获取验证码</button>
-                </div>
-                <div class="form-text">先填好下面的图形验证码，这个按钮才会变亮。</div>
-            </div>
-        </th:block>
-
-        <!-- ============ 图形验证码 ============
-             刻意放在上面两个 th:block **之外**：短信和邮箱两条路都要它。
-             放进 th:unless="${smsEnabled}" 里的话，短信开启那天注册页会直接不可用，
-             而本地（smsEnabled=false）永远测不出来。 -->
-        <div class="mb-3">
-            <label class="form-label" for="captchaCode">图形验证码 <span class="text-danger">*</span></label>
-            <div class="code-row">
-                <input type="text" id="captchaCode" class="form-control" placeholder="请输入图中的字符"
-                       maxlength="4" autocomplete="off" spellcheck="false"
-                       autocapitalize="characters" required>
-                <img id="captchaImg" class="captcha-img" alt="">
-            </div>
-            <div class="form-text" id="captchaHint">图中 4 位字符，不区分大小写</div>
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label" for="password">密码 <span class="text-danger">*</span></label>
-            <input type="password" id="password" class="form-control" placeholder="至少8位" required minlength="8">
-        </div>
-        <div class="mb-3">
-            <label class="form-label" for="realName">真实姓名（可选）</label>
-            <input type="text" id="realName" class="form-control" placeholder="请输入真实姓名">
-        </div>
-
-        <!-- 公司信息：两个都是必填。校验以后端为准，这里只管体验 -->
-        <div class="mb-3">
-            <label class="form-label" for="companyName">所属公司名称 <span class="text-danger">*</span></label>
-            <input type="text" id="companyName" class="form-control"
-                   placeholder="请输入公司全称" maxlength="128" required>
-        </div>
-        <div class="mb-3">
-            <label class="form-label" for="creditCode">统一社会信用代码 <span class="text-danger">*</span></label>
-            <input type="text" id="creditCode" class="form-control"
-                   placeholder="营业执照上的 18 位代码" maxlength="18" required
-                   autocomplete="off" spellcheck="false"
-                   style="text-transform: uppercase; letter-spacing: 1px; font-family: ui-monospace, Consolas, monospace;">
-            <div class="form-text">
-                含校验位，填错会注册失败。<b>同公司的同事请填同一个代码</b>，系统据此自动归到同一家公司。
-            </div>
-        </div>
-
-        <!-- 短信关闭时邮箱已经在上面的必填块里了，这里只在开启时作为可选项出现。
-             留空不报错，但只要填了就要是合法地址 —— 留个打错的邮箱比留空更糟：
-             本人以为能靠它找回密码，实际那个地址根本收不到信。 -->
-        <div class="mb-3" th:if="${smsEnabled}">
-            <label class="form-label" for="email">邮箱（可选，用于找回密码）</label>
-            <input type="email" id="email" class="form-control" placeholder="请输入邮箱">
-            <div class="form-text text-danger d-none" id="emailError"></div>
-        </div>
-
-        <div id="registerError" class="alert alert-danger d-none"></div>
-        <button type="submit" class="btn btn-primary">注 册</button>
-    </form>
-    <div class="links">
-        <a href="/login">已有账号？立即登录</a>
+    <!--
+      【待填】把下面这块换成你们真实的联系方式（微信 / 手机 / 邮箱，任一即可）。
+      现在写的是提示文字，请务必替换后再对外 —— 客户看到一个没有联系方式的
+      "请联系我们"页面，会直接去问对接人，等于这件事白做了。
+    -->
+    <div class="contact">
+        <b>联系方式</b><br>
+        邮箱：<span class="todo">［待填写：service@example.com］</span><br>
+        电话：<span class="todo">［待填写：000-0000 0000］</span>
     </div>
+
+    <a href="/login" class="btn-login">返回登录</a>
+    <div class="foot">已有账号？直接登录即可，本次调整不影响存量账号。</div>
 </div>
 
-<script src="/js/captcha.js?v=1"></script>
-<script th:inline="javascript">
-    // 由服务端注入：决定走「手机号 + 短信验证码」还是「邮箱 + 邮箱验证码」
-    const SMS_ENABLED = /*[[${smsEnabled}]]*/ false;
-
-    let countdown = 0;
-    const sendBtn = document.getElementById('sendCodeBtn');
-    const emailInput = document.getElementById('email');
-    const emailError = document.getElementById('emailError');
-
-    // 和服务端 common/EmailFormat 里那串**一模一样**。两处不一致的话，
-    // 会变成"前端放过去、后端拒绝"（用户看到一个和输入框无关的报错）或者反过来。
-    const EMAIL_RE = new RegExp("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.[a-zA-Z]{2,}$");
-    const EMAIL_MAX_LENGTH = 100;   // 同 EmailFormat.MAX_LENGTH / sys_user.email 列宽
-
-    /**
-     * 返回邮箱的问题描述，没问题返回 null。
-     *
-     * 空值算不算错取决于模式：短信关闭时邮箱是必填的，开启时是选填的。
-     * 但**只要填了就必须合法** —— 留个打错的邮箱比留空更糟，本人以为能靠它找回密码，
-     * 实际那个地址根本收不到信。
-     */
-    function emailProblem() {
-        const value = emailInput.value.trim();
-        if (!value) {
-            return SMS_ENABLED ? null : '请填写邮箱';
-        }
-        if (value.length > EMAIL_MAX_LENGTH) {
-            return '邮箱太长了（最多 ' + EMAIL_MAX_LENGTH + ' 个字符）';
-        }
-        if (!EMAIL_RE.test(value)) {
-            return '邮箱格式不正确，例如 name@company.com';
-        }
-        return null;
-    }
-
-    function showEmailError() {
-        const message = emailProblem();
-        if (emailError) {
-            emailError.textContent = message || '';
-            emailError.classList.toggle('d-none', !message);
-        }
-        return message;
-    }
-
-    // 失焦时报错（不打断输入）。已经在报错的状态下才跟着输入边打边清 ——
-    // 否则刚点进输入框就红一片，很吵。
-    emailInput.addEventListener('blur', showEmailError);
-    emailInput.addEventListener('input', function () {
-        if (emailError && !emailError.classList.contains('d-none')) {
-            showEmailError();
-        }
-    });
-
-    // ==================== 图形验证码 ====================
-    // 两条发码路径（短信 / 邮箱）都要求它。
-
-    // 按钮该不该亮：图码填好了、且不在倒计时里。
-    // **唯一的开关点** —— 别在别处直接写 sendBtn.disabled，两处打架的话
-    // 会出现"填好了却还是灰的"这种查不出原因的状态。
-    let captchaReady = false;
-    function refreshSendBtn() {
-        sendBtn.disabled = countdown > 0 || !captchaReady;
-    }
-
-    // captcha.js 没加载出来时的退路。
-    //
-    // 不挡的话，这一行 `createCaptcha(...)` 会直接抛异常，**整个内联脚本都死掉** ——
-    // 连表单提交、倒计时都一起没了，而页面上没有任何提示。
-    // 退化成"控件不工作、但按钮还能点"，让服务端去拒（它会回一句清楚的
-    // "图形验证码错误或已过期"），比一个安静死掉的页面强。
-    const NO_CAPTCHA_SCRIPT = {
-        refresh: function () { return Promise.resolve(false); },
-        payload: function () { return {}; },
-        reset: function () {}
-    };
-    const HAS_CAPTCHA_SCRIPT = typeof createCaptcha === 'function';
-    if (!HAS_CAPTCHA_SCRIPT) {
-        console.error('[register] captcha.js 未加载，图形验证码不可用，本次交回服务端校验');
-    }
-
-    const captcha = HAS_CAPTCHA_SCRIPT
-        ? createCaptcha({
-            imgId: 'captchaImg',
-            inputId: 'captchaCode',
-            hintId: 'captchaHint',
-            onError: function (msg) { alert(msg); },
-            onChange: function (ready) { captchaReady = ready; refreshSendBtn(); }
-        })
-        : NO_CAPTCHA_SCRIPT;
-
-    // 脚本没加载出来就别让按钮一直是灰的（那样等于整个注册页不可用，还没有任何报错）
-    captchaReady = !HAS_CAPTCHA_SCRIPT;
-    refreshSendBtn();
-
-    captcha.refresh();
-
-    function startCountdown() {
-        countdown = 60;
-        sendBtn.disabled = true;
-        sendBtn.textContent = countdown + 's';   // 立刻变，别等第一秒过去还写着"获取验证码"
-        const interval = setInterval(() => {
-            countdown--;
-            sendBtn.textContent = countdown + 's';
-            if (countdown <= 0) {
-                clearInterval(interval);
-                sendBtn.textContent = '获取验证码';
-                // 倒计时结束不等于能点：图码那栏可能还是空的（发送成功后刚被清掉），
-                // 所以这里交给 refreshSendBtn 判，不要直接 disabled = false
-                refreshSendBtn();
-            }
-        }, 1000);
-    }
-
-    sendBtn.addEventListener('click', async function () {
-        if (countdown > 0) return;
-
-        let url, body;
-        if (SMS_ENABLED) {
-            const phone = document.getElementById('phone').value.trim();
-            if (!/^1[3-9]\d{9}$/.test(phone)) {
-                alert('请先填写正确的手机号');
-                return;
-            }
-            url = '/api/auth/send-sms-code';
-            body = { phone: phone, scene: 'register' };
-        } else {
-            // 用内联提示而不是 alert：错误要贴在出错的那个框下面
-            if (showEmailError()) {
-                emailInput.focus();
-                return;
-            }
-            url = '/api/auth/send-code';
-            body = { email: emailInput.value.trim(), type: 'register' };
-        }
-
-        // 图形验证码是**必填**的。还没签发成功就直接本地拦住 ——
-        // 发个 null 上去只会换来一句看不懂的"图形验证码错误或已过期"。
-        const cp = captcha.payload();
-        if (!cp || !cp.captchaId) {
-            alert('图形验证码未加载，请点击图片刷新后再试');
-            return;
-        }
-        body.captchaId = cp.captchaId;
-        body.captchaCode = cp.captchaCode;
-
-        sendBtn.disabled = true;
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            const data = await response.json();
-
-            // 统一信封：成功看 success，失败信息在 errMessage。
-            // 服务端故障（SMTP 挂了等）会是 HTTP 500 + success:false，这里也能接住。
-            if (data.success) {
-                alert(SMS_ENABLED ? '验证码已发送' : '验证码已发送到您的邮箱');
-                await captcha.refresh();
-                startCountdown();
-            } else {
-                alert(data.errMessage || '发送失败');
-                // 图形验证码是一次性的：被限流拒绝时它也已经消耗掉了，
-                // 不换一张的话用户第二次点必然报"图形验证码错误"。
-                // refresh 会清空输入框 → 按钮重新变灰，用户得再认一张 —— 这是对的。
-                await captcha.refresh();
-            }
-        } catch (err) {
-            alert('网络错误');
-            await captcha.refresh();
-        }
-        // 统一收口：这里不写 sendBtn.disabled = false，交给 refreshSendBtn 判
-        // （图码那栏是空的就该继续灰着）
-        refreshSendBtn();
-    });
-
-    document.getElementById('registerForm').addEventListener('submit', async function (e) {
-        e.preventDefault();
-
-        const errorDiv = document.getElementById('registerError');
-        errorDiv.classList.add('d-none');
-
-        // 邮箱格式先拦一道，提示贴在邮箱框下面。
-        // 浏览器对 type="email" 本来也有原生校验，但原生提示是浏览器样式的一闪而过的小气泡，
-        // 而且短信开启时邮箱是选填的、留空会被放过 —— 这里给的是自己的、留在页面上的提示。
-        // （服务端 register 有同样的校验，这里只是体验。）
-        if (showEmailError()) {
-            emailInput.focus();
-            return;
-        }
-
-        const data = {
-            username: document.getElementById('username').value,
-            code: document.getElementById('code').value,
-            password: document.getElementById('password').value,
-            realName: document.getElementById('realName').value,
-            companyName: document.getElementById('companyName').value.trim(),
-            // 后端会再归一化一次（trim + 转大写）并验校验位，这里先统一大小写，
-            // 免得用户看着自己输入的小写码疑惑为什么"格式不对"
-            creditCode: document.getElementById('creditCode').value.trim().toUpperCase()
-        };
-        if (SMS_ENABLED) {
-            data.phone = document.getElementById('phone').value;
-            data.email = emailInput.value.trim() || null;
-        } else {
-            // trim：和 /send-code 发码时用的必须完全一致，否则验证码存在
-            // verify:code:<带空格的> 而注册查的是 <不带空格的>，永远验不过
-            data.email = emailInput.value.trim();
-        }
-
-        try {
-            const response = await fetch('/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            const result = await response.json();
-
-            // 注意：注册接口校验失败时返回的仍是 HTTP 200，
-            // 只是 body 里 success=false。所以不能只看 response.ok，
-            // 否则失败也会提示"注册成功"。
-            if (result.success) {
-                alert('注册成功！请登录');
-                window.location.href = '/login';
-            } else {
-                errorDiv.textContent = result.errMessage || '注册失败';
-                errorDiv.classList.remove('d-none');
-            }
-        } catch (err) {
-            errorDiv.textContent = '网络错误';
-            errorDiv.classList.remove('d-none');
-        }
-    });
-</script>
 </body>
 </html>

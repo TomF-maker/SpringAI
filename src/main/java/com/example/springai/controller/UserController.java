@@ -11,11 +11,16 @@ import com.example.springai.service.UserImportServiceI;
 import com.example.springai.service.UserServiceI;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -129,6 +134,34 @@ public class UserController {
             return Response.fail(ErrorCode.BAD_REQUEST, "请选择要导入到的客户公司");
         }
         return Response.success(userImportService.importUsers(file, companyId));
+    }
+
+    /**
+     * 下载用户导入模板（xlsx）。
+     *
+     * <p><b>返回文件流，不包 JSON 信封</b> —— 与文档下载同一个道理
+     * （{@code DocumentController} 的下载也是 {@code ResponseEntity}）：
+     * 文件内容没法塞进 {@code {success,data,errMessage}}。
+     *
+     * <p><b>前端必须用 fetch + blob 下载，不能用 {@code <a href>}</b>：
+     * {@code /api/**} 都要求 Bearer token，而浏览器直接跳转不会带 Authorization 头 ——
+     * 那样点下载只会得到一个 401。
+     *
+     * <p>文件名里带中文，所以用 {@link ContentDisposition#filename(String, java.nio.charset.Charset)}
+     * 生成 RFC 5987 的 {@code filename*=UTF-8''...}，避免各浏览器各猜各的编码。
+     */
+    @GetMapping("/import/template")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<byte[]> importTemplate() {
+        byte[] bytes = userImportService.buildTemplate();
+        String filename = ContentDisposition.attachment()
+                .filename("用户导入模板.xlsx", StandardCharsets.UTF_8)
+                .build().toString();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, filename)
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bytes);
     }
 
     // ==================== 以下只要求已登录 ====================

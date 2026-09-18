@@ -1,4 +1,4 @@
-// app.js - 采购智能助手小程序入口
+// app.js - 知行信咨询助手小程序入口
 // 维护全局登录态、未读提示等。真正的 token 校验在 utils/auth.js。
 const auth = require('./utils/auth');
 

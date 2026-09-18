@@ -62,7 +62,10 @@ public class ConversationServiceImpl implements ConversationServiceI {
 
     @Override
     public List<Conversation> getUserConversations(Long userId) {
-        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+        // 走投影查询（不含消息里的 sources）而不是全量查询：列表页用不到来源片段，
+        // 但它是消息体积的大头，一次拉全部会话时尤其明显。
+        // 别改回 findByUserIdOrderByUpdatedAtDesc —— 那会把每个会话的来源片段都搬回前端。
+        return conversationRepository.findListByUserId(userId);
     }
 
     @Override

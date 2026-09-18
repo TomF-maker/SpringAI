@@ -13,12 +13,9 @@ import com.example.springai.dto.SendSmsCodeRequest;
 import com.example.springai.dto.SendCodeRequest;
 import com.example.springai.dto.VerifyLoginRequest;
 import com.example.springai.entity.KbLoginLog;
-import com.example.springai.entity.SysRole;
+import com.example.springai.entity.SysCompany;
 import com.example.springai.entity.SysUser;
-import com.example.springai.entity.SysUserRole;
-import com.example.springai.mapper.SysRoleMapper;
 import com.example.springai.mapper.SysUserMapper;
-import com.example.springai.mapper.SysUserRoleMapper;
 import com.example.springai.exception.BizException;
 import com.example.springai.service.CaptchaServiceI;
 import com.example.springai.service.CompanyServiceI;
@@ -42,6 +39,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.InternalAuthenticationServiceException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
@@ -73,11 +72,6 @@ public class AuthController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private SysRoleMapper roleMapper;
-
-    @Autowired
-    private SysUserRoleMapper userRoleMapper;
     @Autowired
     private VerificationCodeServiceI verificationCodeService;
 
@@ -160,6 +154,31 @@ public class AuthController {
             authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
             );
+        } catch (DisabledException e) {
+            // 理论上到不了这里：Spring Security 7 的 DaoAuthenticationProvider 会先把
+            // 它包成 InternalAuthenticationServiceException（见下面那个 catch）。
+            // 留着是廉价的保险 —— 万一某个版本不再包裹，行为也不会退化成 500。
+            log.info("登录被公司状态拦下: username={}, 原因={}", request.getUsername(), e.getMessage());
+            return Response.fail(ErrorCode.FORBIDDEN, e.getMessage());
+        } catch (InternalAuthenticationServiceException e) {
+            // **这里是实际命中的分支。** Spring Security 7 的
+            // DaoAuthenticationProvider.retrieveUser 会把 loadUserByUsername 里抛出的
+            // 任何 AuthenticationException 包成 InternalAuthenticationServiceException ——
+            // 我们那个 DisabledException（公司停用 / 合约到期）到这一层已经换了类型，
+            // 所以必须看 cause，不能只看类型。
+            //
+            // 认不出来的（cause 不是 DisabledException）就是真·内部故障（比如数据库连不上）：
+            // 按原来的方式计数并抛出去，让它落成 500 —— 那是运维该看见的信号，
+            // 不能伪装成"贵司已到期"。
+            if (e.getCause() instanceof DisabledException) {
+                log.info("登录被公司状态拦下: username={}, 原因={}", request.getUsername(), e.getMessage());
+                // 不计入登录重试：这是商业状态，不是有人在猜密码。
+                // 计进去的话，客户欠费期间反复尝试会把账号也锁上，续费后还要再解锁一次。
+                return Response.fail(ErrorCode.FORBIDDEN, e.getMessage());
+            }
+            log.warn("认证过程内部异常: username={}, {}", request.getUsername(), e.getMessage());
+            loginAttemptLimiter.recordFailure(request.getUsername());
+            throw e;
         } catch (AuthenticationException e) {
             // 失败要计数。注意 BadCredentialsException 在 Spring 里也用来表示"用户不存在"
             // （避免用户名枚举），所以这里按"一次失败的登录尝试"计是合适的。
@@ -227,6 +246,10 @@ public class AuthController {
         }
 
         SysUser user = result.getUser();
+        // 二次验证这条路**绕过了 loadUserByUsername**（用户是从挑战记录里取出来的），
+        // 所以公司状态的判定要在这里再做一次 —— 否则欠费的客户通过短信验证
+        // 仍然能拿到 token。
+        assertCompanyUsable(user);
         // BIND 场景要把新手机号写入；redeem 已校验过格式与唯一性
         String bindPhone = isBind ? PhoneUtils.normalize(request.getPhone()) : null;
 
@@ -450,124 +473,31 @@ public class AuthController {
     }
 
     /**
-     * 注册。
+     * 注册接口 —— <b>已停用（A4 开户收口）</b>。
      *
-     * <p>有两条路径，由 {@code app.sms.enabled} 决定：
-     * <ul>
-     *   <li><b>开</b>：手机号必填 + 短信验证码校验，邮箱可选。</li>
-     *   <li><b>关</b>：回退到原来的邮箱验证码流程，手机号可选——
-     *       短信不可用时若还强制手机验证码，注册会直接不可用。</li>
-     * </ul>
+     * <p>改成"谁来都不能自助注册"是商业上的决定：按公司年费收费却又开着自助注册，
+     * 等于没付费也能进来用；而且那套"填信用代码自动建公司"的流程，本身就在暗示
+     * "客户可以自己开户"。
+     *
+     * <p><b>现在开户只有一条路</b>：内部管理员在公司管理页新建公司
+     * （{@code /api/companies}）→ 在该公司下批量导入员工（{@code /api/users/import}）。
+     *
+     * <p><b>接口必须停用，不能只改页面</b>：把 register.html 换成说明页只是引导，
+     * 直接打这个接口（curl / 改 JS）照样能建号 —— 见 pitfalls.md「前端校验不是约束」。
+     * 所以路由保留、方法直接拒绝，返回 403 加一句能照着做的话。
+     *
+     * <p>原来的逻辑是**整体删除**的，没有留成"永远不执行的分支"：
+     * 死代码比没有代码更容易误导人（pitfalls.md 第 15 条）。要看旧实现走 git 历史；
+     * 其中用到的 {@code CompanyService.resolveOrCreate} 仍然保留 ——
+     * 个人中心"补填公司信息"还在调它。
+     *
+     * <p>存量账号不受影响：这里只管"新注册"，已有账号照常登录。
      */
     @PostMapping("/register")
     public Response<Map<String, Object>> register(@RequestBody RegisterRequest request) {
-
-        // 1. 手机号：短信开启时必填并使用短信验证码；关闭时可选，改用邮箱验证码
-        String phone = PhoneUtils.normalize(request.getPhone());
-        // 这里必须 trim 出和 /send-code 完全一样的字符串：验证码存在 verify:code:<email>，
-        // 两个入口对同一个地址少一个空格就是两个不同的键 —— 发出去的码永远验不过，
-        // 而报错是"验证码错误"，和空格对不上号。
-        String email = (request.getEmail() == null || request.getEmail().isBlank())
-                ? null : request.getEmail().trim();
-
-        // 纯输入校验，必须排在消耗验证码之前（verify 是一次性的，先验码再发现格式不对，
-        // 那个码就白烧了，用户得重新收一次邮件）
-        if (email != null && !EmailFormat.isValid(email)) {
-            return Response.fail(ErrorCode.BAD_REQUEST, "邮箱格式不正确，请检查后重新填写");
-        }
-
-        if (smsEnabled) {
-            if (phone == null) {
-                return Response.fail(ErrorCode.BAD_REQUEST, "请填写正确的手机号");
-            }
-            if (!smsService.verifyCode(phone, SmsScene.REGISTER, request.getCode())) {
-                return Response.fail(ErrorCode.BAD_REQUEST, "验证码错误或已过期");
-            }
-        } else {
-            if (email == null) {
-                return Response.fail(ErrorCode.BAD_REQUEST, "请填写邮箱");
-            }
-            if (!verificationCodeService.verify(email, request.getCode())) {
-                return Response.fail(ErrorCode.BAD_REQUEST, "验证码错误或已过期");
-            }
-        }
-
-        // 2. 用户名查重
-        SysUser existingByUsername = userMapper.selectOne(
-                new QueryWrapper<SysUser>().eq("username", request.getUsername())
-        );
-        if (existingByUsername != null) {
-            return Response.fail(ErrorCode.BAD_REQUEST, "用户名已被占用");
-        }
-
-        // 3. 手机号查重（仅在填了手机号时）
-        if (phone != null && findByPhone(phone) != null) {
-            return Response.fail(ErrorCode.BAD_REQUEST, "该手机号已被注册");
-        }
-
-        // 4. 邮箱查重（仅在填了邮箱时）
-        if (email != null) {
-            SysUser existingByEmail = userMapper.selectOne(
-                    new QueryWrapper<SysUser>().eq("email", email)
-            );
-            if (existingByEmail != null) {
-                return Response.fail(ErrorCode.BAD_REQUEST, "邮箱已被注册");
-            }
-        }
-
-        // 5. 公司：按信用代码找到或创建。
-        // **不是"查重后拒绝"** —— 同一家公司的同事必然填同一个信用代码，
-        // 那样做等于一家公司只能注册进去一个人（第一版的 bug）。
-        String companyName = request.getCompanyName() == null ? null : request.getCompanyName().trim();
-        Long companyId;
-        try {
-            companyId = companyService.resolveOrCreate(companyName, request.getCreditCode());
-        } catch (BizException e) {
-            return Response.fail(ErrorCode.BAD_REQUEST, e.getMessage());
-        }
-
-        // 密码长度在这里兜底。此前**后端完全没有这个校验**，只有 register.html 的
-        // minlength —— 绕过前端（改 JS / 直接打接口）就能注册一个 1 位密码的账号。
-        if (request.getPassword() == null || request.getPassword().length() < MIN_PASSWORD_LENGTH) {
-            return Response.fail(ErrorCode.BAD_REQUEST, "密码至少 " + MIN_PASSWORD_LENGTH + " 位");
-        }
-
-        // 6. 创建新用户
-        SysUser user = new SysUser();
-        user.setUsername(request.getUsername());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setEmail(email);
-        user.setPhone(phone);
-        user.setRealName(request.getRealName() != null ? request.getRealName() : request.getUsername());
-        user.setCompanyId(companyId);
-        // 归属部门已废弃（见 doc/商业化方案.md「A2. 去掉部门维度」）：
-        // 不再拿公司名去 sys_department 里碰、也不再依赖"总公司"这类节点存在与否，
-        // 统一写常量 1。它不再参与任何权限判断，只是个历史占位 ——
-        // 保留列是为了存量数据与回滚（彻底删列留到确认无回滚需求之后）。
-        user.setDepartmentId(1L);
-        // 【必须是 2（外部用户），不能是 1】自助注册是"填信用代码创建/关联公司"的流程，
-        // 注册出来的人本质是**客户公司员工**。写 1 会把他标成"内部员工"，
-        // 而内部非管理员的检索是**不过滤**的（见 RagServiceImpl.internalUserFilter）——
-        // 那等于任何一个自助注册的账号都能搜到所有客户的专属文档。
-        // 2026-09-18 更正：这里原本是 1（注释写"默认内部员工"），属语义错误。
-        user.setUserType(2);
-        user.setStatus(1);             // 默认启用
-        user.setIsAdmin(0);            // 默认非管理员
-        user.setCreatedAt(LocalDateTime.now());
-        user.setUpdatedAt(LocalDateTime.now());
-
-        userMapper.insert(user);
-
-        // 7. 分配默认角色（USER角色，role_id = 3）
-        SysUserRole userRole = new SysUserRole();
-        userRole.setUserId(user.getId());
-        userRole.setRoleId(3L);        // USER 角色的 ID（根据你的数据库实际值调整）
-        userRole.setCreatedAt(LocalDateTime.now());
-        userRoleMapper.insert(userRole);
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("userId", user.getId());
-        return Response.success(data);
+        log.info("🚫 自助注册已关闭，拒绝注册请求: username={}",
+                request == null ? null : request.getUsername());
+        return Response.fail(ErrorCode.FORBIDDEN, "本系统不开放自助注册，请联系我们开通账号");
     }
 
     /** 短信相关接口在总开关关闭时直接拒绝，避免前端拿到一个永远收不到的验证码。 */
@@ -637,5 +567,30 @@ public class AuthController {
         return userMapper.selectOne(
                 new QueryWrapper<SysUser>().eq("phone", normalizedPhone)
         );
+    }
+
+    /**
+     * 公司被停用 / 合约到期 → 拒绝，并给出**能照着做**的原因。
+     *
+     * <p>判定本身在 {@link SysCompany#blockReason}（与 {@code UserDetailsServiceImpl}
+     * 每个请求的判定是同一份逻辑）。这里再判一次是为二次验证那条路补位 ——
+     * {@code verifyLogin} 的用户是从登录挑战记录里取出来的，没有经过
+     * {@code loadUserByUsername}。
+     *
+     * <p>查不到公司（脏数据）时放行：数据问题不该表现成"客户登不进来"。
+     */
+    private void assertCompanyUsable(SysUser user) {
+        if (user == null || user.getCompanyId() == null) {
+            return;
+        }
+        SysCompany company = companyService.findById(user.getCompanyId());
+        if (company == null) {
+            return;
+        }
+        String reason = company.blockReason(LocalDateTime.now());
+        if (reason != null) {
+            log.info("登录被公司状态拦下（二次验证后）: userId={}, 原因={}", user.getId(), reason);
+            throw new BizException(ErrorCode.FORBIDDEN, reason);
+        }
     }
 }

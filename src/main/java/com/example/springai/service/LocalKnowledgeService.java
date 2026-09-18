@@ -19,9 +19,9 @@ public class LocalKnowledgeService implements LocalKnowledgeServiceI{
     private void initKnowledgeBase() {
         // ---- 基础信息 ----
         knowledgeBase.put("你是谁", """
-                🤖 我是**采购智能助手**，一个基于大模型的AI应用。
+                🤖 我是**知行信咨询助手**，一个基于大模型的AI应用。
                 我运行在您本地服务器上，由 Spring AI + Ollama + Qdrant 驱动。
-                我的目标是帮助您高效处理采购相关的文档和问题。
+                我的目标是帮助您高效处理企业咨询相关的文档和问题。
                 """);
 
         knowledgeBase.put("你能做什么", """
@@ -54,7 +54,7 @@ public class LocalKnowledgeService implements LocalKnowledgeServiceI{
                 """);
 
         // ---- 扩展：你可以在这里继续添加更多问答 ----
-        knowledgeBase.put("你好", "👋 您好！我是采购智能助手，很高兴为您服务！");
+        knowledgeBase.put("你好", "👋 您好！我是知行信咨询助手，很高兴为您服务！");
 
         knowledgeBase.put("谢谢", "😊 不客气，随时为您服务！");
 

@@ -1,16 +1,16 @@
-﻿﻿<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>用户管理 - 采购智能助手</title>
+    <title>用户管理 - 知行信咨询助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <!-- SweetAlert2 CSS & JS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
-    <link rel="stylesheet" href="/css/app.css?v=5">
+    <link rel="stylesheet" href="/css/app.css?v=6">
     <style>
         .table-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
@@ -170,6 +170,16 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <div class="alert alert-light border py-2 mb-3" style="font-size:13px;">
+                    <b>三步</b>：① 下载模板 → ② 在「用户」页从第 2 行开始填（<b>第 1 行表头别改</b>）
+                    → ③ 上传这个文件
+                    <div class="mt-2">
+                        <button class="btn btn-sm btn-outline-success" id="downloadTemplateBtn">
+                            <i class="bi bi-download"></i> 下载导入模板
+                        </button>
+                        <small class="text-muted ms-2">模板里第二页是填写说明与示例</small>
+                    </div>
+                </div>
                 <div class="mb-3">
                     <label class="form-label">导入到客户公司 <span class="text-danger">*</span></label>
                     <select class="form-select" id="importCompany">
@@ -181,8 +191,8 @@
                     <label class="form-label">xlsx 文件 <span class="text-danger">*</span></label>
                     <input type="file" class="form-control" id="importFile" accept=".xlsx">
                     <small class="text-muted">
-                        第 1 行必须是表头。<b>「用户名」列必填</b>，可选「姓名 / 邮箱 / 手机号」。
-                        列的顺序不限，按表头文字识别。
+                        第 1 行必须是表头（模板里已经放好了）。<b>「用户名」列必填</b>，
+                        可选「姓名 / 邮箱 / 手机号」。列的顺序不限，按表头文字识别。
                     </small>
                 </div>
                 <div class="alert alert-warning py-2" style="font-size:13px;">
@@ -205,7 +215,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
-<script src="/js/app.js?v=5"></script>
+<script src="/js/app.js?v=6"></script>
 <script>
     // ================================================================
     // 1. 认证检查
@@ -729,6 +739,38 @@
             console.error('加载客户公司列表失败', err);
         }
     }
+
+    /**
+     * 下载导入模板。
+     *
+     * 必须走 fetch + blob，不能写成 <a href="/api/users/import/template">：
+     * /api/** 都要 Bearer token，而浏览器直接跳转不带 Authorization 头 ——
+     * 那样点下载只会 401。所以这里手动取 blob、造一个临时链接点一下、再回收 URL。
+     */
+    document.getElementById('downloadTemplateBtn').addEventListener('click', async function () {
+        const btn = this;
+        btn.disabled = true;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 下载中…';
+        try {
+            const resp = await fetch('/api/users/import/template');
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '用户导入模板.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            Swal.fire('❌ 下载失败', err.message || '未知错误', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    });
 
     document.getElementById('submitImportBtn').addEventListener('click', async function () {
         const companyId = document.getElementById('importCompany').value;

@@ -1,5 +1,5 @@
 /* ============================================
-   采购智能助手 - 共享布局样式（Stripe Dashboard 风）
+   知行信咨询助手 - 共享布局样式（Stripe Dashboard 风）
 
    设计语言：
    - 纯白底 + 单一品牌色（Stripe 紫蓝 #635BFF）
@@ -332,6 +332,46 @@ body.is-client-admin [data-client-admin-only] { display: block; }
     align-items: center;
     gap: var(--pa-space-3);
     min-width: 0;
+}
+
+/* ============================================================
+   服务到期横幅（站内提醒）
+   B1：客户登录后在顶栏下方看到"还剩 N 天到期"。
+   内容由 /js/app.js 拉 /api/company/contract-status 后填充 ——
+   服务端渲染不出来（客户公司/到期日是登录态相关的），所以这里只给样式。
+   ============================================================ */
+.contract-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: calc(var(--pa-space-5) * -1 + 2px) 0 var(--pa-space-5);
+    padding: 12px 16px;
+    border-radius: var(--pa-radius-lg);
+    border: 1px solid #FFD8A8;
+    background: #FFF8EC;
+    color: #8A5A00;
+    font-size: 13.5px;
+    line-height: 1.6;
+}
+.contract-banner .bi {
+    flex: 0 0 auto;
+    font-size: 16px;
+}
+.contract-banner b {
+    font-weight: 700;
+}
+/* 已经到最后 7 天：换成红色调，从"提醒"升级为"要紧" */
+.contract-banner.urgent {
+    border-color: #F5B5AE;
+    background: #FDF2F1;
+    color: #A32B22;
+}
+@media (max-width: 575.98px) {
+    .contract-banner {
+        font-size: 12.5px;
+        padding: 10px 12px;
+        align-items: flex-start;
+    }
 }
 .topbar-title {
     font-size: 18px;

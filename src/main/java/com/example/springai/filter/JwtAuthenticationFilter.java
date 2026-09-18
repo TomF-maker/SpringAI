@@ -6,6 +6,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -81,7 +82,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            UserDetails userDetails;
+            try {
+                userDetails = userDetailsService.loadUserByUsername(username);
+            } catch (DisabledException e) {
+                // 所属公司被停用 / 合约到期（A5 套餐硬拦）。这里必须自己接住：
+                // 过滤器的异常不走 @RestControllerAdvice，冒出去会变成 500 的
+                // /error 页面，而不是统一的信封 —— 前端只能显示"服务器开小差了"。
+                // 返回 401 是有意的：前端对 401 已有统一处理（清登录态、回登录页），
+                // 到了登录页会看到"贵司服务已到期，请联系续费"的明确原因。
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType("application/json;charset=UTF-8");
+                response.getWriter().write(unauthorized(e.getMessage()));
+                return;
+            }
             if (jwtUtils.validateToken(jwtToken, userDetails.getUsername())) {
                 UsernamePasswordAuthenticationToken authToken =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());

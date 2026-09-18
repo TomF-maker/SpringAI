@@ -1,8 +1,11 @@
 package com.example.springai.service.impl;
 
+import com.example.springai.entity.SysCompany;
 import com.example.springai.entity.SysUser;
+import com.example.springai.mapper.SysCompanyMapper;
 import com.example.springai.mapper.SysUserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
@@ -11,6 +14,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,6 +23,9 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
     @Autowired
     private SysUserMapper userMapper;
+
+    @Autowired
+    private SysCompanyMapper companyMapper;
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
@@ -37,6 +44,25 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         // 检查账号状态
         if (sysUser.getStatus() == 0) {
             throw new UsernameNotFoundException("账号已被禁用");
+        }
+
+        // 所属公司停用 / 合约到期 → 一并拦下（A5 套餐硬拦）。
+        //
+        // 为什么放在这里而不是在登录接口里判一次：**授权信息是每个请求重新查库得到的**
+        // （见下面 mustChangePassword 的注释），token 有效期是 12 小时 ——
+        // 只在登录时判的话，客户被停用后最多还能继续用 12 小时。
+        //
+        // 抛 DisabledException（AuthenticationException 的子类）而不是
+        // UsernameNotFoundException：后者会被 DaoAuthenticationProvider 统一
+        // 伪装成"用户名或密码错误"，客户就不知道是欠费了；前者会原样透出我们的
+        // 话术，登录接口把它转成明确的提示（AuthController.login 的 catch）。
+        //
+        // 顺带说明**已知的取舍**：这个判断在密码校验之前，所以知道某个用户名的人
+        // 能看出"这家公司停用了"。我们接受这点信息暴露 —— 欠费提示必须让客户的
+        // 员工看得懂，否则他们会去找 IT 改密码，反而更费事。
+        String companyBlocked = blockedCompanyReason(sysUser);
+        if (companyBlocked != null) {
+            throw new DisabledException(companyBlocked);
         }
 
         // 构建 Spring Security 的 UserDetails 对象
@@ -67,6 +93,32 @@ public class UserDetailsServiceImpl implements UserDetailsService {
      * 两边各写一遍字符串，改一处漏一处就会静默失效（护栏还在，但认不出这个标记）。
      */
     public static final String PWD_CHANGE_REQUIRED_AUTHORITY = "PWD_CHANGE_REQUIRED";
+
+    /**
+     * 用户所属公司是否被拦下（停用 / 合约到期），返回原因；正常返回 null。
+     *
+     * <p>判定逻辑在 {@link SysCompany#blockReason} —— 只写一份，登录、每个请求、
+     * 批量开户三处共用（三处各写一遍必然有一天只改一处）。
+     *
+     * <p><b>代价说明</b>：本方法每次请求都会多一次 {@code sys_company} 主键查询
+     * （外部账号才有）。这是故意的取舍 —— token 有效期 12 小时，只在登录时判
+     * 就意味着客户欠费后还能用半天。真到了查询压力显现的时候，可以在 Redis 里缓存
+     * 几十秒（停用生效延迟几十秒是可接受的），但不要退回"只在登录时判"。
+     *
+     * <p>两种"查不到就不拦"的情况：账号没挂公司（内部账号，含 admin），
+     * 或者公司行被删了（脏数据）。**不能让数据问题变成"客户登不进去"** ——
+     * 那种故障最难查，客户还以为是我们停了他的服务。
+     */
+    private String blockedCompanyReason(SysUser user) {
+        if (user.getCompanyId() == null) {
+            return null;
+        }
+        SysCompany company = companyMapper.selectById(user.getCompanyId());
+        if (company == null) {
+            return null;
+        }
+        return company.blockReason(LocalDateTime.now());
+    }
 
     /**
      * 根据用户获取角色编码。

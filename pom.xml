@@ -13,7 +13,7 @@
     <artifactId>SpringAI</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>SpringAI</name>
-    <description>采购智能助手 - Spring AI 应用</description>
+    <description>知行信咨询助手 - Spring AI 应用</description>
 
     <properties>
         <java.version>21</java.version>

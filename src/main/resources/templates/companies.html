@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>公司管理 - 知行信咨询助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- 共享布局样式：放在各 CDN 之后、本页 <style> 之前 -->
+    <link rel="stylesheet" href="/css/app.css?v=6">
+    <style>
+        .table-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+        .filter-bar .form-control { width: auto; min-width: 220px; flex: 1; }
+        .action-btn { padding: 2px 12px; font-size: 12px; margin: 0 2px; }
+        .text-ellipsis { display: inline-block; max-width: 220px; overflow: hidden;
+                         text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+        /* 状态徽章：正常 / 即将到期 / 已到期 / 停用 —— 四种颜色要能一眼分开 */
+        .c-status { padding: 2px 10px; border-radius: 12px; font-size: 12px; white-space: nowrap; }
+        .c-status.ok       { background: #d4edda; color: #155724; }
+        .c-status.soon     { background: #FFF4E5; color: #8A5A00; }
+        .c-status.expired  { background: #FDE8E4; color: #A32B22; }
+        .c-status.stopped  { background: #f8d7da; color: #721c24; }
+
+        .seat-warn { color: #B54708; font-weight: 600; }
+
+        /* ---------- 详情弹窗 ---------- */
+        .detail-head { display: flex; align-items: flex-start; justify-content: space-between;
+                       gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+        .detail-head h5 { margin: 0; font-weight: 700; }
+        .detail-meta { font-size: 12.5px; color: #8898AA; margin-top: 4px; line-height: 1.9; }
+        .detail-meta b { color: #425466; font-weight: 600; }
+        .blocked-banner { background: #FFF4E5; border: 1px solid #FFD8A8; color: #8a5a00;
+                          border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 10px 0 0; }
+        .mini-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                      gap: 10px; margin: 14px 0 6px; }
+        .mini-card { border: 1px solid #EDF0F4; border-radius: 10px; padding: 10px 12px; background: #fff; }
+        .mini-card .n { font-size: 19px; font-weight: 700; color: #0A2540; line-height: 1.2; }
+        .mini-card .l { font-size: 12px; color: #8898AA; margin-top: 2px; }
+        .sec-title { font-size: 13px; font-weight: 700; color: #0A2540; margin: 18px 0 8px;
+                     padding-left: 8px; border-left: 3px solid #635BFF; }
+        .detail-scroll { max-height: 220px; overflow-y: auto; }
+        table.detail-table { font-size: 12.5px; margin-bottom: 0; }
+        table.detail-table th { font-size: 12px; color: #8898AA; font-weight: 600;
+                                background: #F9FAFC; position: sticky; top: 0; }
+        .rank-row { display: flex; justify-content: space-between; gap: 10px;
+                    padding: 5px 0; border-bottom: 1px dashed #EDF0F4; font-size: 12.5px; }
+        .rank-row:last-child { border-bottom: none; }
+        .rank-row .t { color: #425466; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rank-row .c { color: #8898AA; flex: 0 0 auto; }
+        #trendChart { width: 100%; height: 190px; }
+
+        @media (max-width: 991.98px) {
+            .filter-bar .form-control { width: 100%; }
+            .filter-bar { gap: 8px; }
+            .table-responsive { font-size: 13px; }
+            .text-ellipsis { max-width: 140px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <!-- 侧边栏（共享片段，菜单顺序唯一定义处） -->
+    <div th:replace="~{fragments/layout :: sidebar('companies')}"></div>
+    <div th:replace="~{fragments/layout :: backdrop}"></div>
+
+    <div class="main-content">
+        <div th:replace="~{fragments/layout :: topbar('🏢 公司管理')}"></div>
+
+        <div class="table-container">
+            <div class="filter-bar">
+                <input type="text" id="keyword" class="form-control" placeholder="🔍 搜索公司名称 / 信用代码">
+                <button class="btn btn-primary" id="searchBtn"><i class="bi bi-search"></i> 搜索</button>
+                <button class="btn btn-outline-secondary" id="resetBtn"><i class="bi bi-arrow-counterclockwise"></i> 重置</button>
+                <div class="ms-auto">
+                    <button class="btn btn-success" id="createBtn"><i class="bi bi-plus-lg"></i> 新建公司</button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                    <tr>
+                        <th>公司名称</th>
+                        <th style="width:180px;">信用代码</th>
+                        <th style="width:110px;">员工(启用)</th>
+                        <th style="width:80px;">文档</th>
+                        <th style="width:110px;">近30天提问</th>
+                        <th style="width:120px;">到期日</th>
+                        <th style="width:90px;">状态</th>
+                        <th style="width:190px;">操作</th>
+                    </tr>
+                    </thead>
+                    <tbody id="companyTableBody">
+                    <tr><td colspan="8" class="text-center text-muted py-4">⏳ 加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <nav aria-label="Page navigation" class="mt-3">
+                <div id="pagerBar"></div>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 新建 / 编辑公司 ========== -->
+<div class="modal fade" id="companyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="companyModalTitle"><i class="bi bi-building"></i> 新建公司</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="companyId">
+                <div class="mb-3">
+                    <label class="form-label">公司名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="companyName" maxlength="128"
+                           placeholder="如：XX科技有限公司">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">统一社会信用代码 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="creditCode" maxlength="18"
+                           placeholder="18 位，字母数字">
+                    <small class="text-muted">校验位会验；同一代码不能建两家（客户资料会混在一起）</small>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">合约到期日</label>
+                        <input type="date" class="form-control" id="contractExpireAt">
+                        <small class="text-muted">留空 = 不限（长期）</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">席位上限</label>
+                        <input type="number" class="form-control" id="seatLimit" min="1" placeholder="不限">
+                        <small class="text-muted">可启用的账号数；留空 = 不限</small>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">合约备注</label>
+                    <input type="text" class="form-control" id="contractNote" maxlength="255"
+                           placeholder="年费、条款要点等，仅内部可见">
+                </div>
+                <div class="alert alert-light border py-2 mb-0" style="font-size:12.5px;">
+                    到期日当天仍可使用，<b>次日 00:00 起</b>该公司所有账号将被拒绝登录（资料保留）。
+                    续期只需把日期往后改。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" id="saveCompanyBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 公司详情（下钻） ========== -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-head w-100">
+                    <div>
+                        <h5 id="dName">—</h5>
+                        <div class="detail-meta" id="dMeta"></div>
+                    </div>
+                    <div class="text-end" id="dBadges"></div>
+                </div>
+                <button type="button" class="btn-close ms-2" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="dBlocked" class="d-none"></div>
+
+                <div class="mini-cards">
+                    <div class="mini-card"><div class="n" id="dQ">0</div><div class="l">近30天提问</div></div>
+                    <div class="mini-card"><div class="n" id="dActive">0</div><div class="l">活跃员工</div></div>
+                    <div class="mini-card"><div class="n" id="dHit">0%</div><div class="l">文档命中率</div></div>
+                    <div class="mini-card"><div class="n" id="dGap">0</div><div class="l">知识库缺口</div></div>
+                    <div class="mini-card"><div class="n" id="dDocs">0</div><div class="l">专属文档</div></div>
+                    <div class="mini-card"><div class="n" id="dToday">0</div><div class="l">今日提问</div></div>
+                </div>
+
+                <div class="sec-title">提问趋势（近 30 天）</div>
+                <div id="trendChart"></div>
+
+                <div class="row g-3 mt-1">
+                    <div class="col-lg-6">
+                        <div class="sec-title">员工名单（<span id="dMemberCount">0</span> 人）</div>
+                        <div class="detail-scroll">
+                            <table class="table table-sm detail-table">
+                                <thead><tr><th>账号</th><th>姓名</th><th>状态</th><th>角色</th><th>最后登录</th><th></th></tr></thead>
+                                <tbody id="dMembers"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="sec-title">专属文档（最近 20 份）</div>
+                        <div class="detail-scroll">
+                            <table class="table table-sm detail-table">
+                                <thead><tr><th>标题</th><th>片段</th><th>状态</th><th>上传时间</th></tr></thead>
+                                <tbody id="dDocuments"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-1">
+                    <div class="col-lg-6">
+                        <div class="sec-title">热门问题 Top 10</div>
+                        <div id="dHot" class="detail-scroll"></div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="sec-title">员工活跃榜 Top 10</div>
+                        <div id="dRank" class="detail-scroll"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" id="dEditBtn"><i class="bi bi-pencil"></i> 编辑合约</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- 共享布局脚本：放在页面内联脚本之前，不加 defer/async -->
+<script src="/js/app.js?v=6"></script>
+<script>
+    // ================================================================
+    // 1. 认证检查
+    // ================================================================
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = '/login';
+
+    /**
+     * 内部管理员的判定：userType 不是 2（外部）且 isAdmin=1。
+     *
+     * 注意**不能**用 users.html 那种 `username === 'admin'`：那是历史写法，
+     * 换个人名建内部管理员就漏了。客户管理员（userType=2）在这里必须是 false ——
+     * 公司管理页是伯伯公司的商业资产（在给谁做、年费多少、谁快到期）。
+     *
+     * 这只是体验（少给一个空壳页面），真正的闸门是服务端
+     * /api/companies 的类级 hasRole('ADMIN')。
+     */
+    const isInternalAdmin = localStorage.getItem('userType') !== '2'
+        && localStorage.getItem('isAdmin') === '1';
+    if (!isInternalAdmin) {
+        alert('⚠️ 仅内部管理员可访问此页面');
+        window.location.href = '/chat';
+    }
+
+    // ================================================================
+    // 2. 全局 fetch 拦截器（自动携带 Token）
+    // ================================================================
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const url = args[0];
+        if (typeof url === 'string' && url.includes('/api/auth/')) {
+            return originalFetch.apply(this, args);
+        }
+        const options = args[1] || {};
+        options.headers = options.headers || {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+        args[1] = options;
+        return originalFetch.apply(this, args);
+    };
+
+    // ================================================================
+    // 3. 小工具
+    // ================================================================
+    /** 所有插进 innerHTML 的字符串都要过这里（公司名/备注/用户名都是人填的）。 */
+    function esc(v) {
+        return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /** 合约到期日只显示日期（后端存的是当天 23:59:59）。 */
+    function fmtDate(v) {
+        if (!v) return '不限';
+        return String(v).slice(0, 10);
+    }
+
+    function fmtDateTime(v) {
+        if (!v) return '-';
+        return String(v).replace('T', ' ').slice(0, 16);
+    }
+
+    /**
+     * 状态徽章。
+     *
+     * 注意"已到期"、"即将到期"、"停用"要分开显示：后端 blocked 只告诉我们"被拦了"，
+     * 原因在 blockReason 里 —— 管理员看到"已到期"才会去续费，
+     * 看到"停用"才知道是自己关的，而"即将到期 N 天"是**还没被拦**、
+     * 现在就该去催的那批（B1 到期提醒的落点）。
+     */
+    function statusBadge(row) {
+        if (row.status === 0) return '<span class="c-status stopped">已停用</span>';
+        if (row.blocked) return '<span class="c-status expired">已到期</span>';
+        if (row.expiringSoon) {
+            var days = row.daysLeft === 0 ? '今天' : row.daysLeft + ' 天';
+            return '<span class="c-status soon">即将到期 · ' + days + '</span>';
+        }
+        return '<span class="c-status ok">正常</span>';
+    }
+
+    // ================================================================
+    // 4. 变量
+    // ================================================================
+    let currentPage = 1;
+    let pageSize = 10;
+    let companyModal = null;
+    let detailModal = null;
+    let trendChart = null;
+    let currentDetail = null;
+
+    /**
+     * 当前页的行数据，按 id 索引。
+     *
+     * 按钮上只挂 id，不把整行 JSON 塞进 onclick —— 公司名/备注是人填的，
+     * 里面出现引号会把属性截断（轻则点不动，重则被注入）。
+     */
+    let rowsById = {};
+
+    // ================================================================
+    // 5. 列表
+    // ================================================================
+    async function loadCompanies(page = 1) {
+        const keyword = document.getElementById('keyword').value.trim();
+        const params = new URLSearchParams({ page: page, size: pageSize });
+        if (keyword) params.append('keyword', keyword);
+
+        try {
+            const resp = await fetch('/api/companies?' + params.toString());
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.errMessage || '加载失败');
+
+            const pageResult = data.data || {};
+            renderTable(pageResult.records || []);
+            renderPagination(pageResult.total || 0, pageResult.page || 1, pageResult.size || pageSize);
+            currentPage = pageResult.page || 1;
+        } catch (err) {
+            document.getElementById('companyTableBody').innerHTML =
+                `<tr><td colspan="8" class="text-center text-danger py-3">❌ 加载失败：${esc(err.message)}</td></tr>`;
+        }
+    }
+
+    function renderTable(rows) {
+        const tbody = document.getElementById('companyTableBody');
+        if (!rows || rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">📭 暂无公司，点右上角「新建公司」开户</td></tr>';
+            return;
+        }
+
+        rowsById = {};
+        rows.forEach(r => { rowsById[r.id] = r; });
+
+        tbody.innerHTML = rows.map(r => {
+            // 席位：只看启用中的账号数（与后端校验同一口径）
+            const seatText = r.seatLimit == null
+                ? `${r.memberCount} <span class="text-muted">/ 不限</span>`
+                : `${r.memberCount} <span class="text-muted">/ ${r.seatLimit}</span>`;
+            const seatWarn = r.seatLimit != null && r.memberCount >= r.seatLimit;
+            const toggleLabel = r.status === 1 ? '停用' : '恢复';
+            const toggleClass = r.status === 1 ? 'btn-outline-danger' : 'btn-outline-success';
+            return `
+                <tr>
+                    <td><b>${esc(r.companyName)}</b>${r.contractNote ? `<div class="text-muted" style="font-size:11.5px;">${esc(r.contractNote)}</div>` : ''}</td>
+                    <td><span class="text-muted">${esc(r.creditCode)}</span></td>
+                    <td class="${seatWarn ? 'seat-warn' : ''}">${seatText}${seatWarn ? ' <i class="bi bi-exclamation-triangle"></i>' : ''}</td>
+                    <td>${r.documentCount || 0}</td>
+                    <td>${r.questions30d || 0}</td>
+                    <td>${fmtDate(r.contractExpireAt)}</td>
+                    <td>${statusBadge(r)}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary action-btn" onclick="openDetail(${r.id})" title="详情">详情</button>
+                        <button class="btn btn-sm btn-outline-secondary action-btn" onclick="openEditById(${r.id})" title="编辑">编辑</button>
+                        <button class="btn btn-sm ${toggleClass} action-btn" onclick="toggleStatusById(${r.id})">${toggleLabel}</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function renderPagination(total, page, size) {
+        totalPages = Math.max(1, Math.ceil(total / size));
+        Pager.render({
+            containerId: 'pagerBar',
+            total: total,
+            page: page,
+            size: size,
+            unit: '家公司',
+            onChange: function (newPage, newSize) {
+                pageSize = newSize;
+                loadCompanies(newPage);
+            }
+        });
+    }
+
+    // ================================================================
+    // 6. 新建 / 编辑
+    // ================================================================
+    document.getElementById('createBtn').addEventListener('click', function () {
+        document.getElementById('companyModalTitle').innerHTML =
+            '<i class="bi bi-building"></i> 新建公司';
+        document.getElementById('companyId').value = '';
+        document.getElementById('companyName').value = '';
+        document.getElementById('creditCode').value = '';
+        document.getElementById('contractExpireAt').value = '';
+        document.getElementById('seatLimit').value = '';
+        document.getElementById('contractNote').value = '';
+        companyModal.show();
+    });
+
+    function openEditById(id) {
+        if (rowsById[id]) openEdit(rowsById[id]);
+    }
+
+    function openEdit(row) {
+        document.getElementById('companyModalTitle').innerHTML =
+            '<i class="bi bi-pencil"></i> 编辑公司';
+        document.getElementById('companyId').value = row.id;
+        document.getElementById('companyName').value = row.companyName || '';
+        document.getElementById('creditCode').value = row.creditCode || '';
+        // 后端存的是到期日 23:59:59，input[type=date] 只认 yyyy-MM-dd
+        document.getElementById('contractExpireAt').value =
+            row.contractExpireAt ? String(row.contractExpireAt).slice(0, 10) : '';
+        document.getElementById('seatLimit').value = row.seatLimit == null ? '' : row.seatLimit;
+        document.getElementById('contractNote').value = row.contractNote || '';
+        companyModal.show();
+    }
+
+    document.getElementById('saveCompanyBtn').addEventListener('click', async function () {
+        const id = document.getElementById('companyId').value;
+        const payload = {
+            companyName: document.getElementById('companyName').value.trim(),
+            creditCode: document.getElementById('creditCode').value.trim().toUpperCase(),
+            contractExpireAt: document.getElementById('contractExpireAt').value,
+            contractNote: document.getElementById('contractNote').value.trim()
+        };
+        const seat = document.getElementById('seatLimit').value;
+        payload.seatLimit = seat === '' ? null : parseInt(seat, 10);
+
+        if (!payload.companyName) { Swal.fire('请填写公司名称', '', 'warning'); return; }
+        if (!payload.creditCode) { Swal.fire('请填写统一社会信用代码', '', 'warning'); return; }
+
+        this.disabled = true;
+        try {
+            const resp = await fetch(id ? '/api/companies/' + id : '/api/companies', {
+                method: id ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const env = await resp.json();
+            if (!env.success) {
+                Swal.fire('❌ 保存失败', env.errMessage || '未知错误', 'error');
+                return;
+            }
+            companyModal.hide();
+            await Swal.fire(id ? '已保存' : '已创建',
+                id ? '合约信息已更新。' : '下一步：进详情页用「用户管理 → 批量导入」给这家公司开员工账号。',
+                'success');
+            loadCompanies(id ? currentPage : 1);
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        } finally {
+            this.disabled = false;
+        }
+    });
+
+    // ================================================================
+    // 7. 停用 / 恢复
+    // ================================================================
+    function toggleStatusById(id) {
+        const row = rowsById[id];
+        if (row) toggleStatus(row.id, row.status, row.companyName);
+    }
+
+    async function toggleStatus(id, status, name) {
+        const toStop = status === 1;
+        const confirm = await Swal.fire({
+            title: toStop ? '停用这家公司？' : '恢复这家公司？',
+            html: toStop
+                ? `<b>${esc(name)}</b> 的所有账号将<b>立即无法登录</b>。<br>资料全部保留，续费后点「恢复」即可。`
+                : `<b>${esc(name)}</b> 的账号将恢复登录。`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: toStop ? '停用' : '恢复',
+            cancelButtonText: '取消',
+            confirmButtonColor: toStop ? '#D6483D' : '#1EA672'
+        });
+        if (!confirm.isConfirmed) return;
+
+        try {
+            const resp = await fetch('/api/companies/' + id + '/status', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: toStop ? 0 : 1 })
+            });
+            const env = await resp.json();
+            if (!env.success) {
+                Swal.fire('❌ 操作失败', env.errMessage || '未知错误', 'error');
+                return;
+            }
+            loadCompanies(currentPage);
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        }
+    }
+
+    // ================================================================
+    // 8. 详情下钻
+    // ================================================================
+    async function openDetail(id) {
+        try {
+            const resp = await fetch('/api/companies/' + id + '?days=30');
+            const env = await resp.json();
+            if (!env.success) {
+                Swal.fire('❌ 加载失败', env.errMessage || '未知错误', 'error');
+                return;
+            }
+            currentDetail = env.data;
+            renderDetail(currentDetail);
+            detailModal.show();
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        }
+    }
+
+    function renderDetail(d) {
+        document.getElementById('dName').textContent = d.companyName;
+
+        const seat = d.seatLimit == null
+            ? `<b>${d.activeMemberCount}</b> / 不限`
+            : `<b>${d.activeMemberCount}</b> / ${d.seatLimit}`;
+        document.getElementById('dMeta').innerHTML =
+            `信用代码：<b>${esc(d.creditCode)}</b>　·　`
+            + `到期日：<b>${fmtDate(d.contractExpireAt)}</b>　·　`
+            + `席位（启用/上限）：<b>${seat}</b>`
+            + (d.contractNote ? `<br>备注：${esc(d.contractNote)}` : '');
+
+        document.getElementById('dBadges').innerHTML = statusBadge(d);
+
+        const banner = document.getElementById('dBlocked');
+        if (d.blocked) {
+            banner.className = 'blocked-banner';
+            banner.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${esc(d.blockReason)}`
+                + `　<span class="text-muted">（该公司的员工现在登录会看到这句话）</span>`;
+        } else {
+            banner.className = 'd-none';
+            banner.innerHTML = '';
+        }
+
+        const s = d.stats || {};
+        document.getElementById('dQ').textContent = s.unavailable ? '—' : (s.totalQuestions || 0);
+        document.getElementById('dActive').textContent = s.unavailable ? '—' : (s.activeUsers || 0);
+        document.getElementById('dHit').textContent = s.unavailable ? '—' : ((s.hitRate || 0) + '%');
+        document.getElementById('dGap').textContent = s.unavailable ? '—' : (s.kbGapCount || 0);
+        document.getElementById('dDocs').textContent = d.documentCount || 0;
+        document.getElementById('dToday').textContent = s.unavailable ? '—' : (s.todayQuestions || 0);
+
+        renderTrend(s.dailyQuestions || []);
+        renderMembers(d);
+        renderDocuments(d.documents || []);
+        renderRank('dHot', (s.hotQuestions || []).map(h => ({ text: h.question, count: h.count })));
+        renderRank('dRank', (s.activeUserRank || []).map(u => ({ text: u.name, count: u.count })));
+    }
+
+    function renderTrend(daily) {
+        const el = document.getElementById('trendChart');
+        if (!trendChart) trendChart = echarts.init(el);
+        trendChart.setOption({
+            grid: { left: 40, right: 16, top: 20, bottom: 28 },
+            tooltip: { trigger: 'axis' },
+            xAxis: {
+                type: 'category',
+                data: daily.map(x => String(x.date).slice(5)),
+                axisLine: { lineStyle: { color: '#E5E7EB' } },
+                axisLabel: { color: '#8898AA', fontSize: 11 }
+            },
+            yAxis: {
+                type: 'value',
+                splitLine: { lineStyle: { color: '#F1F3F7' } },
+                axisLabel: { color: '#8898AA', fontSize: 11 }
+            },
+            series: [{
+                type: 'line',
+                smooth: true,
+                symbolSize: 6,
+                data: daily.map(x => x.count),
+                itemStyle: { color: '#635BFF' },
+                areaStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: 'rgba(99,91,255,0.25)' },
+                        { offset: 1, color: 'rgba(99,91,255,0.02)' }
+                    ])
+                }
+            }]
+        });
+        // 弹窗里的容器在 show 之前尺寸是 0，渲染完必须 resize 一次
+        setTimeout(() => trendChart.resize(), 60);
+    }
+
+    function renderMembers(d) {
+        document.getElementById('dMemberCount').textContent = d.members ? d.members.length : 0;
+        const tbody = document.getElementById('dMembers');
+        if (!d.members || d.members.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">还没有员工账号，去「用户管理 → 批量导入」开通</td></tr>';
+            return;
+        }
+        tbody.innerHTML = d.members.map(m => {
+            const status = m.status === 1
+                ? '<span class="c-status ok">启用</span>'
+                : '<span class="c-status stopped">禁用</span>';
+            const role = m.isAdmin === 1
+                ? '<span class="c-status ok">客户管理员</span>'
+                : '<span class="text-muted">员工</span>';
+            const act = m.isAdmin === 1
+                ? `<button class="btn btn-sm btn-outline-secondary action-btn" onclick="setMemberAdmin(${d.id}, ${m.id}, false)">取消管理员</button>`
+                : `<button class="btn btn-sm btn-outline-primary action-btn" onclick="setMemberAdmin(${d.id}, ${m.id}, true)">设为管理员</button>`;
+            return `<tr>
+                        <td>${esc(m.username)}</td>
+                        <td>${esc(m.realName || '-')}</td>
+                        <td>${status}</td>
+                        <td>${role}</td>
+                        <td class="text-muted">${fmtDateTime(m.lastLoginTime)}</td>
+                        <td class="text-end">${act}</td>
+                    </tr>`;
+        }).join('');
+    }
+
+    function renderDocuments(docs) {
+        const tbody = document.getElementById('dDocuments');
+        if (!docs || docs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">这家公司还没有专属文档</td></tr>';
+            return;
+        }
+        const statusMap = { 1: '<span class="c-status ok">已处理</span>', 0: '<span class="c-status expired">待处理</span>', 2: '<span class="c-status stopped">失败</span>' };
+        tbody.innerHTML = docs.map(x => `<tr>
+                <td><span class="text-ellipsis" title="${esc(x.title)}">${esc(x.title || x.fileName || '-')}</span></td>
+                <td>${x.chunkCount || 0}</td>
+                <td>${statusMap[x.status] || '未知'}</td>
+                <td class="text-muted">${fmtDateTime(x.createdAt)}</td>
+            </tr>`).join('');
+    }
+
+    function renderRank(containerId, rows) {
+        const box = document.getElementById(containerId);
+        if (!rows.length) {
+            box.innerHTML = '<div class="text-muted" style="font-size:12.5px;">暂无数据</div>';
+            return;
+        }
+        box.innerHTML = rows.map((r, i) =>
+            `<div class="rank-row">
+                <span class="t">${i + 1}. ${esc(r.text)}</span>
+                <span class="c">${r.count} 次</span>
+            </div>`).join('');
+    }
+
+    /** 指定 / 取消客户管理员。 */
+    async function setMemberAdmin(companyId, userId, isAdmin) {
+        const confirm = await Swal.fire({
+            title: isAdmin ? '设为客户管理员？' : '取消客户管理员？',
+            html: isAdmin
+                ? '该员工将能打开「客户看板」，看到本公司的用量与热门问题。'
+                : '该员工将失去「客户看板」入口。',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: '确定',
+            cancelButtonText: '取消'
+        });
+        if (!confirm.isConfirmed) return;
+
+        try {
+            const resp = await fetch(`/api/companies/${companyId}/members/${userId}/admin`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isAdmin: isAdmin })
+            });
+            const env = await resp.json();
+            if (!env.success) {
+                Swal.fire('❌ 操作失败', env.errMessage || '未知错误', 'error');
+                return;
+            }
+            openDetail(companyId);      // 刷新详情
+            loadCompanies(currentPage); // 列表里的角色也算变了
+        } catch (err) {
+            Swal.fire('❌ 请求失败', err.message, 'error');
+        }
+    }
+
+    document.getElementById('dEditBtn').addEventListener('click', function () {
+        if (!currentDetail) return;
+        detailModal.hide();
+        openEdit(currentDetail);
+    });
+
+    // ================================================================
+    // 9. 初始化
+    // ================================================================
+    companyModal = new bootstrap.Modal(document.getElementById('companyModal'));
+    detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+
+    document.getElementById('searchBtn').addEventListener('click', () => loadCompanies(1));
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        document.getElementById('keyword').value = '';
+        loadCompanies(1);
+    });
+    document.getElementById('keyword').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') loadCompanies(1);
+    });
+
+    // 弹窗里图表尺寸依赖容器可见性：每次打开都 resize 一次，
+    // 否则第二次打开（或窗口大小变了）会画成半截
+    document.getElementById('detailModal').addEventListener('shown.bs.modal', function () {
+        if (trendChart) trendChart.resize();
+    });
+
+    loadCompanies(1);
+</script>
+</body>
+</html>
